@@ -30,7 +30,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && rollup -c",
     "start": "tsc --watch",
     "test": "jest",
-    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "lint": "eslint 'src/**/*.{ts,tsx}' --ignore-pattern '**/*.test.ts' --ignore-pattern '**/*.spec.ts'",
     "release:patch": "npm version patch && git push && git push --tags",
     "release:minor": "npm version minor && git push && git push --tags",
     "release:major": "npm version major && git push && git push --tags",
