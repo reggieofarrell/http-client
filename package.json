@@ -1,0 +1,55 @@
+{
+  "name": "@reggieofarrell/http-client",
+  "version": "1.0.0",
+  "description": "A lightweight HTTP client for both the server and browser built on `xior` with retry functionality, written in TypeScript",
+  "author": "Reggie O'Farrell",
+  "license": "0BSD",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reggieofarrell/http-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/reggieofarrell/http-client/issues"
+  },
+  "keywords": [
+    "http",
+    "retry",
+    "xior",
+    "axios",
+    "fetch",
+    "client",
+    "typescript"
+  ],
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && rollup -c",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.5",
+    "@types/node": "^20.5.0",
+    "@typescript-eslint/eslint-plugin": "^6.4.0",
+    "@typescript-eslint/parser": "^6.4.0",
+    "eslint": "^8.47.0",
+    "jest": "^29.6.2",
+    "rollup": "^3.26.2",
+    "ts-jest": "^29.1.1",
+    "tsup": "^7.1.0",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "xior": "^0.7.8",
+    "serialize-error": "^11.0.3"
+  },
+  "homepage": "https://github.com/reggieofarrell/http-client#readme"
+}
