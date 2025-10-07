@@ -28,12 +28,15 @@
   ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && rollup -c",
+    "start": "tsc --watch",
     "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
-    "type-check": "tsc --noEmit"
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "release:patch": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags",
+    "format": "npx prettier --write .",
+    "linkMe": "npm link",
+    "unlinkMe": "npm unlink -g && npm i"
   },
   "devDependencies": {
     "@types/jest": "^29.5.5",
