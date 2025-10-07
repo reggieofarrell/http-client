@@ -49,10 +49,17 @@ describe('logger', () => {
 
       logData('Circular Object', circularObj);
       expect(consoleLogSpy).toHaveBeenCalledTimes(3);
-      expect(consoleLogSpy).toHaveBeenNthCalledWith(3, JSON.stringify({
-        foo: 'bar',
-        self: '[Circular]'
-      }, null, 2));
+      expect(consoleLogSpy).toHaveBeenNthCalledWith(
+        3,
+        JSON.stringify(
+          {
+            foo: 'bar',
+            self: '[Circular]',
+          },
+          null,
+          2
+        )
+      );
     });
   });
 
