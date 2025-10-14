@@ -22,7 +22,7 @@ This package is built on top of `@reggieofarrell/axios-retry-client v2` and prov
 
 The `HttpClient` accepts the following configuration options:
 
-- `xiorConfig`: Configuration for the underlying [xior instance](https://suhaotian.github.io/xior/).
+- `xiorConfig`: Configuration for the underlying [xior instance](https://suhaotian.github.io/xior/). This includes timeout settings, headers, and other xior-specific options.
 - `baseURL`: Base URL for the API.
 - `debug`: Whether to log request and response details.
 - `debugLevel`: Debug level. 'normal' will log request and response data. 'verbose' will log all xior properties for the request and response.
@@ -40,6 +40,9 @@ import { HttpClient } from '@reggieofarrell/http-client';
 const client = new HttpClient({
   baseURL: 'https://api.example.com',
   name: 'ExampleClient',
+  xiorConfig: {
+    timeout: 30000 // 30 second timeout
+  },
   retryConfig: {
     retries: 2
   }
@@ -112,6 +115,140 @@ const { data } = await client.get('/endpoint', {
 ```
 
 **Note**: Per-request retry configuration leverages xior's built-in error-retry plugin options that are applied at the request level.
+
+### Timeout Configuration
+
+The `HttpClient` supports timeout configuration through Xior's built-in timeout functionality. You can set timeouts globally for all requests or per-request.
+
+#### Global Timeout Configuration
+
+Set a default timeout for all requests when creating the client:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  xiorConfig: {
+    timeout: 30000 // 30 seconds
+  }
+});
+```
+
+#### Per-Request Timeout Configuration
+
+Override the timeout for specific requests:
+
+```typescript
+// Short timeout for quick requests
+const { data } = await client.get('/fast-endpoint', {
+  timeout: 5000 // 5 seconds
+});
+
+// Longer timeout for slow operations
+const { data } = await client.post('/slow-operation', payload, {
+  timeout: 120000 // 2 minutes
+});
+```
+
+#### Timeout Error Handling
+
+When a request times out, Xior throws an `AbortError`. Handle timeout errors appropriately:
+
+```typescript
+try {
+  const { data } = await client.get('/endpoint', {
+    timeout: 10000 // 10 seconds
+  });
+  console.log(data);
+} catch (error) {
+  if (error.name === 'AbortError') {
+    console.log('Request timed out');
+    // Handle timeout - maybe retry with longer timeout
+  } else {
+    console.log('Other error:', error.message);
+  }
+}
+```
+
+#### Timeout with Retry Configuration
+
+Combine timeout configuration with retry logic for robust error handling:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  xiorConfig: {
+    timeout: 15000 // 15 second default timeout
+  },
+  retryConfig: {
+    retries: 3,
+    delayFactor: 1000,
+    enableRetry: (config, error) => {
+      // Retry on timeout errors
+      return error.name === 'AbortError' ||
+             (error.response && error.response.status >= 500);
+    }
+  }
+});
+
+// This request will timeout after 15 seconds, then retry up to 3 times
+const { data } = await client.get('/unreliable-endpoint');
+```
+
+The timeout value is passed directly to the underlying `fetch` API's `AbortController`, providing native browser and Node.js timeout support.
+
+### Aborting In-Flight Requests
+
+You can abort in-flight requests using the `AbortController` API. This is useful for canceling requests when users navigate away, components unmount, or when you need to cancel long-running operations.
+
+#### Basic Request Abortion
+
+```typescript
+const controller = new AbortController();
+
+// Start a request
+const requestPromise = client.get('/long-running-endpoint', {
+  signal: controller.signal
+});
+
+// Abort the request after 5 seconds
+setTimeout(() => {
+  controller.abort();
+}, 5000);
+
+try {
+  const { data } = await requestPromise;
+  console.log(data);
+} catch (error) {
+  if (error.name === 'AbortError') {
+    console.log('Request was aborted');
+  } else {
+    console.log('Other error:', error.message);
+  }
+}
+```
+
+#### Aborting Multiple Requests
+
+```typescript
+const controller = new AbortController();
+
+// Start multiple requests with the same abort signal
+const requests = [
+  client.get('/endpoint1', { signal: controller.signal }),
+  client.get('/endpoint2', { signal: controller.signal }),
+  client.get('/endpoint3', { signal: controller.signal })
+];
+
+// Abort all requests
+controller.abort();
+
+// All requests will be cancelled
+try {
+  await Promise.all(requests);
+} catch (error) {
+  console.log('All requests were aborted');
+}
+```
 
 ### Retry Configuration with Jitter
 
