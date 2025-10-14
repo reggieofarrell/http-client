@@ -46,8 +46,39 @@ export interface HttpClientRetryConfig {
   enableRetry?: boolean | ((config: XiorRequestConfig, error: XiorError) => boolean | undefined);
 }
 
+export interface IdempotencyConfig {
+  /**
+   * Enable idempotency key generation
+   * @default false
+   */
+  enabled?: boolean;
+  /**
+   * HTTP methods that should include idempotency keys
+   * @default ['POST', 'PATCH']
+   */
+  methods?: RequestType[];
+  /**
+   * Header name for idempotency key
+   * @default 'Idempotency-Key'
+   */
+  headerName?: string;
+  /**
+   * Custom function to generate idempotency keys
+   * @default counter-based key generation
+   */
+  keyGenerator?: () => string;
+}
+
 export interface HttpClientRequestConfig extends XiorRequestConfig {
   retryConfig?: HttpClientRetryConfig;
+  /**
+   * Manual idempotency key for this request
+   */
+  idempotencyKey?: string;
+  /**
+   * Per-request idempotency configuration
+   */
+  idempotencyConfig?: IdempotencyConfig;
 }
 
 export interface HttpClientResponse<T> {
@@ -82,6 +113,11 @@ export interface HttpClientOptions {
    * The default configuration is `{ retries: 0, retryDelay: exponentialDelay, delayFactor: 500, backoff: 'exponential' }`.
    */
   retryConfig?: HttpClientRetryConfig;
+  /**
+   * Configuration for idempotency key generation.
+   * The default configuration is `{ enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }`.
+   */
+  idempotencyConfig?: IdempotencyConfig;
 }
 
 export class HttpClient {
@@ -92,6 +128,9 @@ export class HttpClient {
   debugLevel: HttpClientOptions['debugLevel'];
   name: HttpClientOptions['name'];
   retryConfig: HttpClientRetryConfig;
+  idempotencyConfig: IdempotencyConfig;
+  private requestKeyCache: Map<string, string>;
+  private idempotencyCounter: number;
 
   constructor(config: HttpClientOptions) {
     const backoff = config.retryConfig?.backoff || 'exponential';
@@ -127,7 +166,21 @@ export class HttpClient {
         }
       : defaultRetryConfig;
 
+    const defaultIdempotencyConfig: IdempotencyConfig = {
+      enabled: false,
+      methods: [RequestType.POST, RequestType.PATCH],
+      headerName: 'Idempotency-Key',
+    };
+
+    const idempotencyConfig: IdempotencyConfig = config.idempotencyConfig
+      ? {
+          ...defaultIdempotencyConfig,
+          ...config.idempotencyConfig,
+        }
+      : defaultIdempotencyConfig;
+
     delete config.retryConfig;
+    delete config.idempotencyConfig;
 
     config = {
       xiorConfig: {},
@@ -144,6 +197,9 @@ export class HttpClient {
     this.debugLevel = config.debugLevel;
     this.name = config.name;
     this.retryConfig = config.retryConfig!;
+    this.idempotencyConfig = idempotencyConfig;
+    this.requestKeyCache = new Map();
+    this.idempotencyCounter = 0;
 
     const client = xior.create({
       ...config.xiorConfig,
@@ -247,6 +303,34 @@ export class HttpClient {
     return null;
   }
 
+  private generateRequestSignature(method: RequestType, url: string, data?: any): string {
+    // Create a unique signature for the request based on method, URL, and data
+    const dataString = data ? JSON.stringify(data) : '';
+    return `${method}:${url}:${dataString}`;
+  }
+
+  private generateIdempotencyKey(): string {
+    // Fast counter-based key generation
+    return `${Date.now()}-${(++this.idempotencyCounter).toString(36)}`;
+  }
+
+  private getOrCreateIdempotencyKey(signature: string): string {
+    // Check if we already have a key for this request (retry scenario)
+    if (this.requestKeyCache.has(signature)) {
+      return this.requestKeyCache.get(signature)!;
+    }
+
+    // Generate new key for new request
+    const key = this.generateIdempotencyKey();
+    this.requestKeyCache.set(signature, key);
+    return key;
+  }
+
+  private clearIdempotencyKey(signature: string): void {
+    // Remove key from cache after successful request
+    this.requestKeyCache.delete(signature);
+  }
+
   private async _request<T>(
     requestType: RequestType,
     url: string,
@@ -289,6 +373,36 @@ export class HttpClient {
       delete config.retryConfig;
     }
 
+    // Handle idempotency key generation
+    const mergedIdempotencyConfig = {
+      ...this.idempotencyConfig,
+      ...config.idempotencyConfig,
+    };
+
+    if (mergedIdempotencyConfig.enabled && mergedIdempotencyConfig.methods?.includes(requestType)) {
+      // Check if manual idempotency key is provided
+      if (config.idempotencyKey) {
+        config.headers = {
+          ...config.headers,
+          [mergedIdempotencyConfig.headerName!]: config.idempotencyKey,
+        };
+      } else {
+        // Generate or retrieve cached idempotency key
+        const requestSignature = this.generateRequestSignature(requestType, url, data);
+        const idempotencyKey = mergedIdempotencyConfig.keyGenerator
+          ? mergedIdempotencyConfig.keyGenerator()
+          : this.getOrCreateIdempotencyKey(requestSignature);
+
+        config.headers = {
+          ...config.headers,
+          [mergedIdempotencyConfig.headerName!]: idempotencyKey,
+        };
+      }
+    }
+
+    delete config.idempotencyKey;
+    delete config.idempotencyConfig;
+
     // Call beforeRequest hook to potentially modify the request parameters
     const filteredArgs = await this.preRequestFilter(requestType, url, data, config);
     data = filteredArgs.data ?? data;
@@ -317,6 +431,12 @@ export class HttpClient {
       }
     } catch (err) {
       this.errorHandler(err, requestType, url);
+    }
+
+    // Clear idempotency key after successful request
+    if (mergedIdempotencyConfig.enabled && mergedIdempotencyConfig.methods?.includes(requestType)) {
+      const requestSignature = this.generateRequestSignature(requestType, url, data);
+      this.clearIdempotencyKey(requestSignature);
     }
 
     return { request: req!, data: req!.data };
@@ -391,10 +511,8 @@ export class HttpClient {
    * @returns The modified request parameters
    */
   protected async preRequestFilter(
-    // @ts-expect-error - not used here, but may be used in a subclass
-    requestType: RequestType,
-    // @ts-expect-error - not used here, but may be used in a subclass
-    url: string,
+    _requestType: RequestType,
+    _url: string,
     data: any,
     config: XiorRequestConfig
   ): Promise<{ data: any; config: XiorRequestConfig }> {
@@ -511,9 +629,9 @@ export class HttpClient {
         logData(`[${this.name}] ${reqType} ${url} : error.request`, error.request);
       }
 
-      throw new Error(`[${this.name}] ${reqType} ${url} [no response] : ${error.message}`, {
-        cause: error,
-      });
+      const err = new Error(`[${this.name}] ${reqType} ${url} [no response] : ${error.message}`);
+      (err as any).cause = error;
+      throw err;
     } else {
       // Something happened in setting up the request that triggered an Error
       if (this.debug) {
@@ -525,9 +643,9 @@ export class HttpClient {
       }
 
       if (error.message) {
-        throw new Error(`[${this.name}] ${reqType} ${url} : ${error.message}`, {
-          cause: error,
-        });
+        const err = new Error(`[${this.name}] ${reqType} ${url} : ${error.message}`);
+        (err as any).cause = error;
+        throw err;
       } else {
         throw new Error(error);
       }
@@ -561,7 +679,10 @@ export class ApiResponseError extends Error {
    * @param {any} cause - The cause of the error.
    */
   constructor(message: string, status: number, response: object | string, cause?: any) {
-    super(message, { cause });
+    super(message);
+    if (cause) {
+      (this as any).cause = cause;
+    }
     this.status = status;
     this.response = response;
   }

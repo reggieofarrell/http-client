@@ -28,6 +28,7 @@ The `HttpClient` accepts the following configuration options:
 - `debugLevel`: Debug level. 'normal' will log request and response data. 'verbose' will log all xior properties for the request and response.
 - `name`: Name of the client. Used for logging.
 - `retryConfig`: Configuration for error retry functionality. The default config if you don't override it is `{ retries: 0, retryDelay: exponentialDelay, delayFactor: 500, backoff: 'exponential', backoffJitter: 'none' }`. You can override individual properties in the `retryConfig` and they will be merged with the default. We add `delayFactor`, `backoff`, and `backoffJitter` to make configuring the retry delay easier. Otherwise you'd have to create your own `retryDelay` function (which you can still do if you like).
+- `idempotencyConfig`: Configuration for idempotency key generation. The default config is `{ enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }`. This helps prevent duplicate operations when requests are retried due to network issues or timeouts.
 
 For more details, refer to the [source code](src/http-client.ts).
 
@@ -204,6 +205,167 @@ The client automatically respects `Retry-After` headers from server responses. W
 The `Retry-After` header can be:
 - A number (seconds to wait)
 - An HTTP date string (absolute time to retry)
+
+### Idempotency Controls
+
+Idempotency controls help prevent duplicate operations when requests are retried due to network issues, timeouts, or client-side errors. This is especially important for operations like payments, order creation, or data mutations that shouldn't be repeated.
+
+#### What is Idempotency?
+
+An idempotent operation is one that can be performed multiple times with the same result. For example, if you create a payment and the request times out, you can safely retry the same request without creating a duplicate payment.
+
+#### Basic Idempotency Setup
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  idempotencyConfig: {
+    enabled: true,
+    methods: ['POST', 'PATCH'], // Only for mutation operations
+    headerName: 'Idempotency-Key'
+  }
+});
+
+// POST requests will automatically include an idempotency key
+const { data } = await client.post('/payments', {
+  amount: 1000,
+  currency: 'USD'
+});
+```
+
+#### Idempotency Configuration Options
+
+```typescript
+interface IdempotencyConfig {
+  /**
+   * Enable idempotency key generation
+   * @default false
+   */
+  enabled?: boolean;
+  /**
+   * HTTP methods that should include idempotency keys
+   * @default ['POST', 'PATCH']
+   */
+  methods?: RequestType[];
+  /**
+   * Header name for idempotency key
+   * @default 'Idempotency-Key'
+   */
+  headerName?: string;
+  /**
+   * Custom function to generate idempotency keys
+   * @default counter-based key generation
+   */
+  keyGenerator?: () => string;
+}
+```
+
+#### Per-Request Idempotency
+
+You can override idempotency settings for individual requests:
+
+```typescript
+// Disable idempotency for a specific request
+const { data } = await client.post('/endpoint', payload, {
+  idempotencyConfig: {
+    enabled: false
+  }
+});
+
+// Use a custom idempotency key
+const { data } = await client.post('/endpoint', payload, {
+  idempotencyKey: 'my-custom-key-123'
+});
+
+// Override methods for this request
+const { data } = await client.put('/endpoint', payload, {
+  idempotencyConfig: {
+    enabled: true,
+    methods: ['PUT']
+  }
+});
+```
+
+#### Manual Idempotency Key
+
+You can provide your own idempotency key for specific requests:
+
+```typescript
+const { data } = await client.post('/payments', paymentData, {
+  idempotencyKey: 'payment-123-abc'
+});
+```
+
+#### Custom Key Generation
+
+Use a custom function to generate idempotency keys:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  idempotencyConfig: {
+    enabled: true,
+    keyGenerator: () => `custom-${Date.now()}-${Math.random().toString(36)}`
+  }
+});
+```
+
+#### Retry Scenarios
+
+The client automatically handles retry scenarios by reusing the same idempotency key:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  idempotencyConfig: {
+    enabled: true,
+    methods: ['POST']
+  },
+  retryConfig: {
+    retries: 3,
+    delayFactor: 1000
+  }
+});
+
+// If this request fails and retries, the same idempotency key will be used
+const { data } = await client.post('/critical-operation', data);
+```
+
+#### Custom Header Names
+
+Use custom header names for idempotency keys:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  idempotencyConfig: {
+    enabled: true,
+    headerName: 'X-Request-ID'
+  }
+});
+```
+
+#### Method-Specific Configuration
+
+Configure different methods to use idempotency:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  idempotencyConfig: {
+    enabled: true,
+    methods: ['POST', 'PUT', 'PATCH'] // Include PUT operations
+  }
+});
+```
+
+#### Best Practices
+
+1. **Enable for mutation operations**: Only enable idempotency for POST, PUT, and PATCH requests
+2. **Use descriptive keys**: When providing manual keys, use descriptive names
+3. **Server-side handling**: Ensure your API server properly handles idempotency keys
+4. **Key cleanup**: Keys are automatically cleaned up after successful requests
+5. **Retry scenarios**: The same key is reused during retries, preventing duplicate operations
 
 ### Disable TLS checks (server only - Node.js)
 If necessary you can disable the TLS checks in case the server you are hitting is using a self-signed certificate.

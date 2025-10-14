@@ -5,8 +5,7 @@
 const color =
   (colorCode: string) =>
   (text: string): string => {
-    // @ts-expect-error - globalThis is not defined in the global scope
-    if (typeof globalThis.window === 'undefined') {
+    if (typeof (globalThis as any).window === 'undefined') {
       return `\x1b[${colorCode}m${text}\x1b[0m`;
     }
     return text;
@@ -90,14 +89,14 @@ export const logError = (error: unknown, title?: string) => {
   if (error instanceof Error) {
     console.log(red(error.stack || error.message));
 
-    if (error.cause) {
+    if ((error as any).cause) {
       console.log('');
       console.log(red('== Error Cause =='));
 
-      if (error.cause instanceof Error) {
-        console.log(red(error.cause.stack || error.cause.message));
+      if ((error as any).cause instanceof Error) {
+        console.log(red((error as any).cause.stack || (error as any).cause.message));
       } else {
-        console.log(red(safeStringify(error.cause)));
+        console.log(red(safeStringify((error as any).cause)));
       }
     }
   } else {

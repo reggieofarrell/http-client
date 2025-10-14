@@ -45,7 +45,7 @@
     "src/**/*.{ts,tsx}": [
       "eslint --fix",
       "prettier --write",
-      "tsc --noEmit -p tsconfig.json"
+      "tsc --noEmit"
     ],
     "*.{json,md}": [
       "prettier --write"
