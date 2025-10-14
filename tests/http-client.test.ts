@@ -1,20 +1,14 @@
-import { HttpClient, RequestType, ApiResponseError } from './http-client';
+import { HttpClient, RequestType, ApiResponseError } from '../src/http-client';
 import MockPlugin from 'xior/plugins/mock';
 
-jest.mock('./logger', () => ({
-  logData: jest.fn(),
-  logInfo: jest.fn(),
-}));
+jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
 
 describe('HttpClient', () => {
   let client: HttpClient;
   let mock: MockPlugin;
 
   beforeEach(() => {
-    client = new HttpClient({
-      baseURL: 'https://api.example.com',
-      debug: true,
-    });
+    client = new HttpClient({ baseURL: 'https://api.example.com', debug: true });
     mock = new MockPlugin(client.client);
   });
 
@@ -24,9 +18,7 @@ describe('HttpClient', () => {
 
   describe('Constructor Options', () => {
     test('uses default options when not provided', () => {
-      const client = new HttpClient({
-        baseURL: 'https://api.example.com',
-      });
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
 
       expect(client.debug).toBe(false);
       expect(client.debugLevel).toBe('normal');
@@ -37,6 +29,7 @@ describe('HttpClient', () => {
         onRetry: expect.any(Function),
         delayFactor: 500,
         backoff: 'exponential',
+        backoffJitter: 'none',
         enableRetry: expect.any(Function),
       });
     });
@@ -47,9 +40,7 @@ describe('HttpClient', () => {
         debug: true,
         debugLevel: 'verbose',
         name: 'CustomClient',
-        retryConfig: {
-          retries: 5,
-        },
+        retryConfig: { retries: 5 },
       });
 
       expect(client.debug).toBe(true);
@@ -61,6 +52,7 @@ describe('HttpClient', () => {
         onRetry: expect.any(Function),
         delayFactor: 500,
         backoff: 'exponential',
+        backoffJitter: 'none',
         enableRetry: expect.any(Function),
       });
     });
@@ -117,9 +109,7 @@ describe('HttpClient', () => {
     test('handles query parameters correctly', async () => {
       mock.onGet('/test').reply(200, { success: true });
 
-      const response = await client.get('/test', {
-        params: { foo: 'bar' },
-      });
+      const response = await client.get('/test', { params: { foo: 'bar' } });
       expect(response.data).toEqual({ success: true });
     });
 
@@ -132,19 +122,14 @@ describe('HttpClient', () => {
         return [400, { error: 'Header mismatch' }];
       });
 
-      const response = await client.get('/test', {
-        headers: { 'X-Custom-Header': 'test-value' },
-      });
+      const response = await client.get('/test', { headers: { 'X-Custom-Header': 'test-value' } });
       expect(response.data).toEqual({ success: true });
     });
   });
 
   describe('Error Handling', () => {
     test('handles API error with message', async () => {
-      const errorResponse = {
-        message: 'Not Found',
-        status: 404,
-      };
+      const errorResponse = { message: 'Not Found', status: 404 };
 
       mock.onGet('/error').reply(404, errorResponse);
 
@@ -162,9 +147,7 @@ describe('HttpClient', () => {
     });
 
     test('handles 500 server error', async () => {
-      mock.onGet('/server-error').reply(500, {
-        message: 'Internal Server Error',
-      });
+      mock.onGet('/server-error').reply(500, { message: 'Internal Server Error' });
 
       await expect(client.get('/server-error')).rejects.toThrow(ApiResponseError);
     });
@@ -194,11 +177,7 @@ describe('HttpClient', () => {
     test('applies retry config at instance level', () => {
       const retryClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        retryConfig: {
-          retries: 3,
-          delayFactor: 1000,
-          backoff: 'linear',
-        },
+        retryConfig: { retries: 3, delayFactor: 1000, backoff: 'linear' },
       });
 
       expect(retryClient.retryConfig.retries).toBe(3);
@@ -209,9 +188,7 @@ describe('HttpClient', () => {
     test('applies per-request retry config to request options', async () => {
       const testClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        retryConfig: {
-          retries: 1,
-        },
+        retryConfig: { retries: 1 },
       });
 
       const testMock = new MockPlugin(testClient.client);
@@ -219,12 +196,7 @@ describe('HttpClient', () => {
 
       // This should not throw even though we're overriding retry config
       await expect(
-        testClient.get('/test', {
-          retryConfig: {
-            retries: 5,
-            delayFactor: 100,
-          },
-        })
+        testClient.get('/test', { retryConfig: { retries: 5, delayFactor: 100 } })
       ).resolves.toBeDefined();
 
       testMock.restore();
@@ -233,13 +205,318 @@ describe('HttpClient', () => {
     test('uses default enableRetry function when not provided', () => {
       const client = new HttpClient({
         baseURL: 'https://api.example.com',
-        retryConfig: {
-          retries: 2,
-        },
+        retryConfig: { retries: 2 },
       });
 
       expect(client.retryConfig.enableRetry).toBeDefined();
       expect(typeof client.retryConfig.enableRetry).toBe('function');
+    });
+  });
+
+  describe('Retry Backoff with Jitter', () => {
+    test('defaults to no jitter (backoffJitter: none)', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: { retries: 3, delayFactor: 100, backoff: 'exponential' },
+      });
+
+      expect(client.retryConfig.backoffJitter).toBe('none');
+    });
+
+    test('applies full jitter to exponential backoff', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
+      });
+
+      // Create a mock error
+      const mockError: any = { response: null };
+
+      // Test multiple iterations to verify randomization
+      const delays: number[] = [];
+      for (let i = 1; i <= 3; i++) {
+        const delay = (client as any).getRetryDelay(i, mockError, 'exponential', 100, 'full');
+        const maxDelay = 100 * Math.pow(2, i - 1); // Expected max for exponential
+        expect(delay).toBeGreaterThanOrEqual(0);
+        expect(delay).toBeLessThanOrEqual(maxDelay);
+        delays.push(delay);
+      }
+    });
+
+    test('applies equal jitter to exponential backoff', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'equal',
+        },
+      });
+
+      const mockError: any = { response: null };
+
+      for (let i = 1; i <= 3; i++) {
+        const delay = (client as any).getRetryDelay(i, mockError, 'exponential', 100, 'equal');
+        const baseDelay = 100 * Math.pow(2, i - 1);
+        const minDelay = baseDelay / 2;
+        const maxDelay = baseDelay;
+        expect(delay).toBeGreaterThanOrEqual(minDelay);
+        expect(delay).toBeLessThanOrEqual(maxDelay);
+      }
+    });
+
+    test('applies decorrelated jitter', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'decorrelated',
+        },
+      });
+
+      const mockError: any = { response: null };
+
+      for (let i = 1; i <= 3; i++) {
+        const delay = (client as any).getRetryDelay(
+          i,
+          mockError,
+          'exponential',
+          100,
+          'decorrelated'
+        );
+        const baseDelay = 100 * Math.pow(2, i - 1);
+        const minDelay = 100; // delayFactor
+        const maxDelay = baseDelay * 3;
+        expect(delay).toBeGreaterThanOrEqual(minDelay);
+        expect(delay).toBeLessThanOrEqual(maxDelay);
+      }
+    });
+
+    test('applies full jitter to linear backoff', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: { retries: 3, delayFactor: 100, backoff: 'linear', backoffJitter: 'full' },
+      });
+
+      const mockError: any = { response: null };
+
+      for (let i = 1; i <= 3; i++) {
+        const delay = (client as any).getRetryDelay(i, mockError, 'linear', 100, 'full');
+        const maxDelay = 100 * i; // Expected max for linear
+        expect(delay).toBeGreaterThanOrEqual(0);
+        expect(delay).toBeLessThanOrEqual(maxDelay);
+      }
+    });
+
+    test('applies full jitter to no backoff', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: { retries: 3, delayFactor: 100, backoff: 'none', backoffJitter: 'full' },
+      });
+
+      const mockError: any = { response: null };
+
+      for (let i = 1; i <= 3; i++) {
+        const delay = (client as any).getRetryDelay(i, mockError, 'none', 100, 'full');
+        expect(delay).toBeGreaterThanOrEqual(0);
+        expect(delay).toBeLessThanOrEqual(100); // Constant delay
+      }
+    });
+
+    test('respects Retry-After header with numeric value (seconds)', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
+      });
+
+      const mockError: any = {
+        response: {
+          headers: { 'retry-after': '5' },
+        },
+      };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'full');
+      expect(delay).toBe(5000); // 5 seconds in milliseconds
+    });
+
+    test('respects Retry-After header with HTTP date string', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
+      });
+
+      const futureDate = new Date(Date.now() + 10000); // 10 seconds in the future
+      const mockError: any = {
+        response: {
+          headers: { 'Retry-After': futureDate.toUTCString() },
+        },
+      };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'full');
+      expect(delay).toBeGreaterThan(9000); // Should be close to 10 seconds
+      expect(delay).toBeLessThanOrEqual(10000);
+    });
+
+    test('Retry-After takes precedence over calculated backoff', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
+      });
+
+      const mockError: any = {
+        response: {
+          headers: { 'retry-after': '2' },
+        },
+      };
+
+      // Retry count 3 with exponential would normally be 400ms (100 * 2^2)
+      // But Retry-After should override this
+      const delay = (client as any).getRetryDelay(3, mockError, 'exponential', 100, 'full');
+      expect(delay).toBe(2000); // 2 seconds in milliseconds, not affected by jitter
+    });
+
+    test('jitter is NOT applied when Retry-After header is present', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
+      });
+
+      const mockError: any = {
+        response: {
+          headers: { 'retry-after': '3' },
+        },
+      };
+
+      // Run multiple times to ensure it's always exactly 3000ms
+      for (let i = 0; i < 10; i++) {
+        const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'full');
+        expect(delay).toBe(3000); // Always exactly 3 seconds
+      }
+    });
+
+    test('supports per-request backoffJitter override', async () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'none',
+        },
+      });
+
+      const mock = new MockPlugin(client.client);
+      mock.onGet('/test').reply(200, { success: true });
+
+      // This should not throw even though we're overriding jitter config
+      await expect(
+        client.get('/test', {
+          retryConfig: {
+            retries: 2,
+            delayFactor: 100,
+            backoff: 'exponential',
+            backoffJitter: 'full',
+          },
+        })
+      ).resolves.toBeDefined();
+
+      mock.restore();
+    });
+
+    test('per-request jitter config overrides instance-level config', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'none',
+        },
+      });
+
+      const mockError: any = { response: null };
+
+      // Simulate per-request override by directly calling getRetryDelay with 'full' jitter
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'full');
+      expect(delay).toBeGreaterThanOrEqual(0);
+      expect(delay).toBeLessThanOrEqual(100);
+    });
+
+    test('handles invalid Retry-After header gracefully', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'none',
+        },
+      });
+
+      const mockError: any = {
+        response: {
+          headers: { 'retry-after': 'invalid-value' },
+        },
+      };
+
+      // Should fall back to calculated delay when Retry-After is invalid
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'none');
+      expect(delay).toBe(100); // First retry with exponential: 100 * 2^0
+    });
+
+    test('parseRetryAfter handles numeric string correctly', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const result = (client as any).parseRetryAfter('10');
+      expect(result).toBe(10000); // 10 seconds in milliseconds
+    });
+
+    test('parseRetryAfter handles HTTP date correctly', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const futureDate = new Date(Date.now() + 5000);
+      const result = (client as any).parseRetryAfter(futureDate.toUTCString());
+      expect(result).toBeGreaterThan(4000);
+      expect(result).toBeLessThanOrEqual(5000);
+    });
+
+    test('parseRetryAfter returns null for invalid input', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const result = (client as any).parseRetryAfter('not-a-date-or-number');
+      expect(result).toBeNull();
+    });
+
+    test('parseRetryAfter returns 0 for past dates', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const pastDate = new Date(Date.now() - 5000);
+      const result = (client as any).parseRetryAfter(pastDate.toUTCString());
+      expect(result).toBe(0);
     });
   });
 
@@ -259,9 +536,7 @@ describe('HttpClient', () => {
         }
       }
 
-      const customClient = new CustomClient({
-        baseURL: 'https://api.example.com',
-      });
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
 
       const customMock = new MockPlugin(customClient.client);
 
@@ -304,9 +579,7 @@ describe('HttpClient', () => {
       });
 
       const response = await client.post('/login', params, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
       expect(response.data).toEqual({ success: true });
     });
@@ -321,9 +594,7 @@ describe('HttpClient', () => {
       });
 
       const response = await client.post('/text', textData, {
-        headers: {
-          'Content-Type': 'text/plain',
-        },
+        headers: { 'Content-Type': 'text/plain' },
       });
       expect(response.data).toEqual({ success: true });
     });
@@ -341,9 +612,7 @@ describe('HttpClient', () => {
       });
 
       const response = await client.post('/binary', binaryData, {
-        headers: {
-          'Content-Type': 'application/octet-stream',
-        },
+        headers: { 'Content-Type': 'application/octet-stream' },
       });
       expect(response.data).toEqual({ success: true });
     });
@@ -376,9 +645,7 @@ describe('HttpClient', () => {
         public errorHandler = jest.fn();
       }
 
-      const customClient = new CustomClient({
-        baseURL: 'https://api.example.com',
-      });
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
 
       const customMock = new MockPlugin(customClient.client);
       customMock.onGet('/error').reply(500, { error: 'Server Error' });
@@ -393,9 +660,7 @@ describe('HttpClient', () => {
         public preRequestAction = jest.fn();
       }
 
-      const customClient = new CustomClient({
-        baseURL: 'https://api.example.com',
-      });
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
 
       const customMock = new MockPlugin(customClient.client);
       customMock.onGet('/test').reply(200, { success: true });
@@ -418,9 +683,7 @@ describe('HttpClient', () => {
         });
       }
 
-      const customClient = new CustomClient({
-        baseURL: 'https://api.example.com',
-      });
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
 
       const customMock = new MockPlugin(customClient.client);
       customMock.onPost('/test').reply((config: any) => {
@@ -452,12 +715,9 @@ describe('HttpClient', () => {
 
       await verboseClient.get('/test');
 
-      expect(require('./logger').logData).toHaveBeenCalledWith(
+      expect(require('../src/logger').logData).toHaveBeenCalledWith(
         '[HttpClient] GET /test',
-        expect.objectContaining({
-          data: undefined,
-          config: expect.any(Object),
-        })
+        expect.objectContaining({ data: undefined, config: expect.any(Object) })
       );
       verboseMock.restore();
     });
@@ -474,11 +734,9 @@ describe('HttpClient', () => {
 
       await normalClient.post('/test', { data: 'test' });
 
-      expect(require('./logger').logData).toHaveBeenCalledWith(
+      expect(require('../src/logger').logData).toHaveBeenCalledWith(
         '[HttpClient] POST /test',
-        expect.objectContaining({
-          data: { data: 'test' },
-        })
+        expect.objectContaining({ data: { data: 'test' } })
       );
       normalMock.restore();
     });
