@@ -27,27 +27,44 @@
     "dist"
   ],
   "scripts": {
+    "prepare": "husky",
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && rollup -c",
     "start": "tsc --watch",
     "test": "jest",
     "lint": "eslint 'src/**/*.{ts,tsx}' --ignore-pattern '**/*.test.ts' --ignore-pattern '**/*.spec.ts'",
-    "release:patch": "npm version patch && git push && git push --tags",
-    "release:minor": "npm version minor && git push && git push --tags",
-    "release:major": "npm version major && git push && git push --tags",
+    "release": "commit-and-tag-version",
+    "release:patch": "commit-and-tag-version --release-as patch",
+    "release:minor": "commit-and-tag-version --release-as minor",
+    "release:major": "commit-and-tag-version --release-as major",
     "format": "prettier --write .",
     "linkMe": "npm link",
     "unlinkMe": "npm unlink -g && npm i"
   },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write",
+      "tsc --noEmit -p tsconfig.json"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
   "devDependencies": {
+    "@commitlint/cli": "^20.1.0",
+    "@commitlint/config-conventional": "^20.0.0",
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.37.0",
     "@types/jest": "^29.5.5",
     "@types/node": "^20.5.0",
     "@typescript-eslint/eslint-plugin": "^8.46.0",
     "@typescript-eslint/parser": "^8.46.0",
+    "commit-and-tag-version": "^12.6.0",
     "eslint": "^9.37.0",
     "globals": "^16.4.0",
+    "husky": "^9.1.7",
     "jest": "^29.6.2",
+    "lint-staged": "^16.2.4",
     "prettier": "^3.6.2",
     "rollup": "^4.19.2",
     "rollup-plugin-dts": "^6.1.1",

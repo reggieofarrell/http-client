@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+
+## Commits
+- when creating commit messages, always keep them concise and adhere to the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#specification) spec
