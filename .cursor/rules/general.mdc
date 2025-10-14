@@ -3,7 +3,4 @@ alwaysApply: true
 ---
 
 ## Commits
-- when creating commit messages, always keep them concise and adhere to the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#specification) spec
-
-## Pull Requests
-- when you are asked to create a pr, use the `gh` cli and adhere to the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#specification) spec
+- when creating commit messages, always keep them concise and adhere to the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#specification) spec. All code is merged to the default branch (main) via squash and merge from branches (no direct pushing to main), so the individual commit messages will end up in the PR notes. No need to be verbose here.
