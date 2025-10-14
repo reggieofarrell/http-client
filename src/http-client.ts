@@ -12,6 +12,7 @@ export enum RequestType {
 }
 
 type BackoffOptions = 'exponential' | 'linear' | 'none';
+type JitterOptions = 'none' | 'full' | 'equal' | 'decorrelated';
 
 export interface HttpClientRetryConfig {
   /**
@@ -34,6 +35,11 @@ export interface HttpClientRetryConfig {
    * Backoff strategy: 'exponential', 'linear', or 'none'
    */
   backoff?: BackoffOptions;
+  /**
+   * Jitter strategy to prevent thundering herd: 'none', 'full', 'equal', or 'decorrelated'
+   * @default 'none'
+   */
+  backoffJitter?: JitterOptions;
   /**
    * Function to determine if a request should be retried
    */
@@ -95,7 +101,7 @@ export class HttpClient {
     const defaultRetryConfig: HttpClientRetryConfig = {
       retries: 0,
       retryDelay: (retryCount: number, error: XiorError, _requestConfig: XiorRequestConfig) =>
-        this.getRetryDelay(retryCount, error, backoff, delayFactor),
+        this.getRetryDelay(retryCount, error, backoff, delayFactor, 'none'),
       onRetry: (requestConfig, error, retryCount) => {
         if (this.debug) {
           console.log(
@@ -105,6 +111,7 @@ export class HttpClient {
       },
       delayFactor,
       backoff,
+      backoffJitter: 'none',
       // By default, retry on 5xx errors and network errors
       enableRetry: (_config, error) => {
         if (!error.response) return true; // Network errors
@@ -150,7 +157,13 @@ export class HttpClient {
         retryInterval: (count: number, config: XiorRequestConfig, error: XiorError) => {
           return this.retryConfig.retryDelay
             ? this.retryConfig.retryDelay(count, error, config)
-            : this.getRetryDelay(count, error, backoff, delayFactor);
+            : this.getRetryDelay(
+                count,
+                error,
+                backoff,
+                delayFactor,
+                this.retryConfig.backoffJitter || 'none'
+              );
         },
       };
 
@@ -170,20 +183,68 @@ export class HttpClient {
 
   private getRetryDelay(
     retryCount: number,
-    _error: XiorError,
+    error: XiorError,
     backoff: string,
-    delayFactor: number
+    delayFactor: number,
+    jitter: JitterOptions
   ): number {
+    // Check for Retry-After header - it takes precedence over calculated delays
+    if (error.response?.headers) {
+      const headers = error.response.headers as any;
+      const retryAfter = headers['retry-after'] || headers['Retry-After'];
+      if (retryAfter) {
+        const retryAfterMs = this.parseRetryAfter(retryAfter);
+        if (retryAfterMs !== null) {
+          // Return Retry-After value without jitter (server-specified delay)
+          return retryAfterMs;
+        }
+      }
+    }
+
+    // Calculate base delay using backoff strategy
+    let delay: number;
     if (backoff === 'exponential') {
       // Exponential backoff: delayFactor * 2^(retryCount - 1)
-      return delayFactor * Math.pow(2, retryCount - 1);
+      delay = delayFactor * Math.pow(2, retryCount - 1);
     } else if (backoff === 'linear') {
       // Linear backoff: delayFactor * retryCount
-      return delayFactor * retryCount;
+      delay = delayFactor * retryCount;
     } else {
       // No backoff: constant delay
-      return delayFactor;
+      delay = delayFactor;
     }
+
+    // Apply jitter based on strategy
+    if (jitter === 'full') {
+      // Full jitter: random value between 0 and delay
+      return Math.random() * delay;
+    } else if (jitter === 'equal') {
+      // Equal jitter: half deterministic, half random
+      return delay / 2 + Math.random() * (delay / 2);
+    } else if (jitter === 'decorrelated') {
+      // Decorrelated jitter (stateless approximation): random between base and delay * 3
+      return delayFactor + Math.random() * (delay * 3 - delayFactor);
+    } else {
+      // No jitter
+      return delay;
+    }
+  }
+
+  private parseRetryAfter(retryAfter: string | number): number | null {
+    // If it's a number (or string number), treat as seconds
+    const asNumber = Number(retryAfter);
+    if (!isNaN(asNumber)) {
+      return asNumber * 1000; // Convert to milliseconds
+    }
+
+    // Try parsing as HTTP date
+    const asDate = new Date(retryAfter);
+    if (!isNaN(asDate.getTime())) {
+      const delayMs = asDate.getTime() - Date.now();
+      return delayMs > 0 ? delayMs : 0;
+    }
+
+    return null;
   }
 
   private async _request<T>(
@@ -203,6 +264,8 @@ export class HttpClient {
 
       const backoff = perRequestRetryConfig.backoff || this.retryConfig.backoff!;
       const delayFactor = perRequestRetryConfig.delayFactor || this.retryConfig.delayFactor!;
+      const backoffJitter =
+        perRequestRetryConfig.backoffJitter || this.retryConfig.backoffJitter || 'none';
 
       // Map our config to xior's error-retry plugin options
       if (perRequestRetryConfig.retries !== undefined) {
@@ -212,7 +275,7 @@ export class HttpClient {
       config.retryInterval = (count: number, cfg: XiorRequestConfig, error: XiorError) => {
         return perRequestRetryConfig.retryDelay
           ? perRequestRetryConfig.retryDelay(count, error, cfg)
-          : this.getRetryDelay(count, error, backoff, delayFactor);
+          : this.getRetryDelay(count, error, backoff, delayFactor, backoffJitter);
       };
 
       if (perRequestRetryConfig.onRetry !== undefined) {

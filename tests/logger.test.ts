@@ -1,4 +1,4 @@
-import { logWarning, logInfo, logData, logError } from './logger';
+import { logWarning, logInfo, logData, logError } from '../src/logger';
 
 describe('logger', () => {
   let consoleLogSpy: jest.SpyInstance;
@@ -51,14 +51,7 @@ describe('logger', () => {
       expect(consoleLogSpy).toHaveBeenCalledTimes(3);
       expect(consoleLogSpy).toHaveBeenNthCalledWith(
         3,
-        JSON.stringify(
-          {
-            foo: 'bar',
-            self: '[Circular]',
-          },
-          null,
-          2
-        )
+        JSON.stringify({ foo: 'bar', self: '[Circular]' }, null, 2)
       );
     });
   });

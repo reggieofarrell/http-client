@@ -14,7 +14,7 @@ npm install @reggieofarrell/http-client
 
 ## Built on
 
-This package is built on top of `@reggieofarrell/axios-retry-client v2` and provides a similar API, but uses `xior` instead of `axios` for better performance and modern fetch-based architecture.
+This package is built on top of `@reggieofarrell/axios-retry-client v2` and provides a similar API, but uses `xior` instead of `axios` for smaller bundle size and modern fetch-based architecture.
 
 ## Usage
 
@@ -27,7 +27,7 @@ The `HttpClient` accepts the following configuration options:
 - `debug`: Whether to log request and response details.
 - `debugLevel`: Debug level. 'normal' will log request and response data. 'verbose' will log all xior properties for the request and response.
 - `name`: Name of the client. Used for logging.
-- `retryConfig`: Configuration for error retry functionality. The default config if you don't override it is `{ retries: 0, retryDelay: exponentialDelay, delayFactor: 500, backoff: 'exponential' }`. You can override individual properties in the `retryConfig` and they will be merged with the default. We add `delayFactor` and `backoff` to make configuring the retry delay easier. Otherwise you'd have to create your own `retryDelay` function (which you can still do if you like).
+- `retryConfig`: Configuration for error retry functionality. The default config if you don't override it is `{ retries: 0, retryDelay: exponentialDelay, delayFactor: 500, backoff: 'exponential', backoffJitter: 'none' }`. You can override individual properties in the `retryConfig` and they will be merged with the default. We add `delayFactor`, `backoff`, and `backoffJitter` to make configuring the retry delay easier. Otherwise you'd have to create your own `retryDelay` function (which you can still do if you like).
 
 For more details, refer to the [source code](src/http-client.ts).
 
@@ -111,6 +111,99 @@ const { data } = await client.get('/endpoint', {
 ```
 
 **Note**: Per-request retry configuration leverages xior's built-in error-retry plugin options that are applied at the request level.
+
+### Retry Configuration with Jitter
+
+The retry system supports configurable backoff strategies with optional jitter to prevent the "thundering herd" problem when multiple clients retry simultaneously.
+
+#### Backoff Strategies
+
+- **`exponential`** (default): `delayFactor * 2^(retryCount - 1)` - Doubles delay with each retry
+- **`linear`**: `delayFactor * retryCount` - Increases delay linearly
+- **`none`**: Constant `delayFactor` delay for all retries
+
+#### Jitter Strategies
+
+Jitter adds randomness to prevent multiple clients from retrying at the exact same time:
+
+- **`none`** (default): No jitter, deterministic delays
+- **`full`**: Random delay between 0 and the calculated backoff delay
+- **`equal`**: Half deterministic, half random - `delay/2 + random(0, delay/2)`
+- **`decorrelated`**: Random delay with adaptive upper bound - `random(delayFactor, delay * 3)`
+
+#### Example Configurations
+
+**Exponential backoff with full jitter (recommended for distributed systems):**
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  retryConfig: {
+    retries: 3,
+    delayFactor: 1000,
+    backoff: 'exponential',
+    backoffJitter: 'full'
+  }
+});
+// Retry delays (with delayFactor=1000ms):
+// - Retry 1: random(0, 1000ms)
+// - Retry 2: random(0, 2000ms)
+// - Retry 3: random(0, 4000ms)
+```
+
+**Linear backoff with equal jitter:**
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  retryConfig: {
+    retries: 3,
+    delayFactor: 500,
+    backoff: 'linear',
+    backoffJitter: 'equal'
+  }
+});
+// Retry delays (with delayFactor=500ms):
+// - Retry 1: 250ms + random(0, 250ms) = 250-500ms
+// - Retry 2: 500ms + random(0, 500ms) = 500-1000ms
+// - Retry 3: 750ms + random(0, 750ms) = 750-1500ms
+```
+
+**Per-request jitter override:**
+
+```typescript
+// Instance defaults to no jitter
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  retryConfig: {
+    retries: 2,
+    delayFactor: 1000,
+    backoff: 'exponential',
+    backoffJitter: 'none'
+  }
+});
+
+// Override with full jitter for specific request
+const { data } = await client.get('/critical-endpoint', {
+  retryConfig: {
+    retries: 5,
+    backoffJitter: 'full'
+  }
+});
+```
+
+#### Retry-After Header Support
+
+The client automatically respects `Retry-After` headers from server responses. When present, the server-specified delay takes precedence over calculated backoff delays, and jitter is **not** applied to server-specified delays.
+
+```typescript
+// If the server returns "Retry-After: 10" (10 seconds)
+// The client will wait exactly 10 seconds regardless of jitter settings
+```
+
+The `Retry-After` header can be:
+- A number (seconds to wait)
+- An HTTP date string (absolute time to retry)
 
 ### Disable TLS checks (server only - Node.js)
 If necessary you can disable the TLS checks in case the server you are hitting is using a self-signed certificate.
