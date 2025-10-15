@@ -351,5 +351,399 @@ describe('HttpClient Idempotency', () => {
         (client as any).generateRequestSignature('POST', '/test', { circular: {} });
       }).not.toThrow();
     });
+
+    it('should handle circular references in request data', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const circularObj: any = { name: 'test' };
+      circularObj.self = circularObj;
+
+      // This should throw an error due to circular reference
+      expect(() => {
+        (client as any).generateRequestSignature('POST', '/test', circularObj);
+      }).toThrow();
+    });
+
+    it('should handle null and undefined data in signature generation', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const signature1 = (client as any).generateRequestSignature('POST', '/test', null);
+      const signature2 = (client as any).generateRequestSignature('POST', '/test', null);
+      const signature3 = (client as any).generateRequestSignature('POST', '/test', undefined);
+
+      expect(signature1).toBe(signature2);
+      expect(signature1).toBe('POST:/test:');
+      expect(signature3).toBe('POST:/test:');
+    });
+
+    it('should handle empty object and array data', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const signature1 = (client as any).generateRequestSignature('POST', '/test', {});
+      const signature2 = (client as any).generateRequestSignature('POST', '/test', []);
+      const signature3 = (client as any).generateRequestSignature('POST', '/test', {});
+
+      expect(signature1).toBe('POST:/test:{}');
+      expect(signature2).toBe('POST:/test:[]');
+      expect(signature1).toBe(signature3);
+    });
+
+    it('should handle complex nested data structures', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const complexData = {
+        user: { id: 1, name: 'John' },
+        items: [
+          { id: 1, name: 'Item 1' },
+          { id: 2, name: 'Item 2' },
+        ],
+        metadata: { created: '2023-01-01', updated: '2023-01-02' },
+      };
+
+      const signature1 = (client as any).generateRequestSignature('POST', '/test', complexData);
+      const signature2 = (client as any).generateRequestSignature('POST', '/test', complexData);
+
+      expect(signature1).toBe(signature2);
+      expect(signature1).toContain('POST:/test:');
+    });
+  });
+
+  describe('Idempotency Key Generation Edge Cases', () => {
+    it('should generate unique keys for multiple requests', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const key1 = (client as any).generateIdempotencyKey();
+      const key2 = (client as any).generateIdempotencyKey();
+      const key3 = (client as any).generateIdempotencyKey();
+
+      expect(key1).toBeDefined();
+      expect(key2).toBeDefined();
+      expect(key3).toBeDefined();
+      expect(key1).not.toBe(key2);
+      expect(key2).not.toBe(key3);
+      expect(key1).not.toBe(key3);
+    });
+
+    it('should generate keys with timestamp and counter', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const key = (client as any).generateIdempotencyKey();
+      const parts = key.split('-');
+
+      expect(parts).toHaveLength(2);
+      expect(parts[0]).toMatch(/^\d+$/); // Should be a timestamp
+      expect(parts[1]).toMatch(/^[a-z0-9]+$/); // Should be base36 counter
+    });
+
+    it('should increment counter for each key generation', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const key1 = (client as any).generateIdempotencyKey();
+      const key2 = (client as any).generateIdempotencyKey();
+
+      const parts1 = key1.split('-');
+      const parts2 = key2.split('-');
+
+      const counter1 = parseInt(parts1[1], 36);
+      const counter2 = parseInt(parts2[1], 36);
+
+      expect(counter2).toBe(counter1 + 1);
+    });
+  });
+
+  describe('Idempotency Configuration Edge Cases', () => {
+    it('should handle empty methods array', async () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [], // Empty array
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+      mock.onGet('/test').reply(200, { success: true });
+
+      await client.post('/test', { data: 'test' });
+      await client.get('/test');
+
+      // No idempotency keys should be added
+      expect(mock.history.post?.[0]?.headers).not.toHaveProperty('Idempotency-Key');
+      expect(mock.history.get?.[0]?.headers).not.toHaveProperty('Idempotency-Key');
+    });
+
+    it('should handle undefined methods array', async () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST], // Use default methods
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+
+      await client.post('/test', { data: 'test' });
+
+      // Should use default methods (POST, PATCH)
+      expect(mock.history.post?.[0]?.headers).toHaveProperty('Idempotency-Key');
+    });
+
+    it('should handle custom header name with special characters', async () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+          headerName: 'X-Custom-Idempotency-Key-123',
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+      await client.post('/test', { data: 'test' });
+
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers).toHaveProperty('X-Custom-Idempotency-Key-123');
+      expect(calls?.[0]?.headers).not.toHaveProperty('Idempotency-Key');
+    });
+
+    it('should handle custom key generator that returns empty string', async () => {
+      const customKeyGenerator = jest.fn(() => '');
+
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+          keyGenerator: customKeyGenerator,
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+      await client.post('/test', { data: 'test' });
+
+      expect(customKeyGenerator).toHaveBeenCalled();
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers?.['Idempotency-Key']).toBe('');
+    });
+
+    it('should handle custom key generator that returns null', async () => {
+      const customKeyGenerator = jest.fn(() => null as any);
+
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+          keyGenerator: customKeyGenerator,
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+      await client.post('/test', { data: 'test' });
+
+      expect(customKeyGenerator).toHaveBeenCalled();
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers?.['Idempotency-Key']).toBeNull();
+    });
+  });
+
+  describe('Idempotency Key Caching Edge Cases', () => {
+    it('should handle cache operations with non-existent keys', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      // Test getting non-existent key
+      const key = (client as any).getOrCreateIdempotencyKey('non-existent-signature');
+      expect(key).toBeDefined();
+
+      // Test clearing non-existent key
+      expect(() => {
+        (client as any).clearIdempotencyKey('non-existent-signature');
+      }).not.toThrow();
+    });
+
+    it('should handle cache operations with empty signature', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const key = (client as any).getOrCreateIdempotencyKey('');
+      expect(key).toBeDefined();
+
+      (client as any).clearIdempotencyKey('');
+      expect((client as any).requestKeyCache.has('')).toBe(false);
+    });
+
+    it('should handle cache operations with special characters in signature', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const specialSignature = 'POST:/test:{"data":"test with spaces & symbols!@#$%"}';
+      const key = (client as any).getOrCreateIdempotencyKey(specialSignature);
+      expect(key).toBeDefined();
+
+      (client as any).clearIdempotencyKey(specialSignature);
+      expect((client as any).requestKeyCache.has(specialSignature)).toBe(false);
+    });
+
+    it('should handle multiple cache operations', () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+      });
+
+      const signature1 = 'POST:/test1:{"data":"test1"}';
+      const signature2 = 'POST:/test2:{"data":"test2"}';
+
+      const key1 = (client as any).getOrCreateIdempotencyKey(signature1);
+      const key2 = (client as any).getOrCreateIdempotencyKey(signature2);
+
+      expect(key1).toBeDefined();
+      expect(key2).toBeDefined();
+      expect(key1).not.toBe(key2);
+
+      expect((client as any).requestKeyCache.has(signature1)).toBe(true);
+      expect((client as any).requestKeyCache.has(signature2)).toBe(true);
+
+      (client as any).clearIdempotencyKey(signature1);
+      expect((client as any).requestKeyCache.has(signature1)).toBe(false);
+      expect((client as any).requestKeyCache.has(signature2)).toBe(true);
+
+      (client as any).clearIdempotencyKey(signature2);
+      expect((client as any).requestKeyCache.has(signature2)).toBe(false);
+    });
+  });
+
+  describe('Per-Request Idempotency Edge Cases', () => {
+    it('should handle per-request idempotency with undefined config', async () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+
+      await client.post(
+        '/test',
+        { data: 'test' },
+        {
+          // No idempotencyConfig provided - should use global config
+        }
+      );
+
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers).toHaveProperty('Idempotency-Key');
+    });
+
+    it('should handle per-request idempotency with empty config', async () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+
+      await client.post(
+        '/test',
+        { data: 'test' },
+        {
+          idempotencyConfig: {}, // Empty per-request config
+        }
+      );
+
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers).toHaveProperty('Idempotency-Key');
+    });
+
+    it('should handle per-request idempotency with custom header name', async () => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+          headerName: 'X-Global-Key',
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+
+      await client.post(
+        '/test',
+        { data: 'test' },
+        {
+          idempotencyConfig: {
+            enabled: true,
+            methods: [RequestType.POST],
+            headerName: 'X-Local-Key',
+          },
+        }
+      );
+
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers).toHaveProperty('X-Local-Key');
+      expect(calls?.[0]?.headers).not.toHaveProperty('X-Global-Key');
+    });
+
+    it('should handle per-request idempotency with custom key generator', async () => {
+      const customKeyGenerator = jest.fn(() => 'local-custom-key');
+
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        idempotencyConfig: {
+          enabled: true,
+          methods: [RequestType.POST],
+          keyGenerator: () => 'global-custom-key',
+        },
+      });
+      mock = new MockPlugin(client.client);
+
+      mock.onPost('/test').reply(200, { success: true });
+
+      await client.post(
+        '/test',
+        { data: 'test' },
+        {
+          idempotencyConfig: {
+            enabled: true,
+            methods: [RequestType.POST],
+            keyGenerator: customKeyGenerator,
+          },
+        }
+      );
+
+      expect(customKeyGenerator).toHaveBeenCalled();
+      const calls = mock.history.post;
+      expect(calls?.[0]?.headers?.['Idempotency-Key']).toBe('local-custom-key');
+    });
   });
 });

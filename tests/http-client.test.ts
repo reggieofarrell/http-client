@@ -741,4 +741,420 @@ describe('HttpClient', () => {
       normalMock.restore();
     });
   });
+
+  describe('Error Handling Edge Cases', () => {
+    test('handles error with response but no status', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error('Network Error');
+        (error as any).response = { data: { message: 'Server Error' } };
+        // No status property
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow();
+    });
+
+    test('handles error with response and status but no data.message', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error('Network Error');
+        (error as any).response = {
+          status: 400,
+          data: { error: 'Bad Request' }, // Different property name
+        };
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow(ApiResponseError);
+    });
+
+    test('handles error with response, status, and data but no message property', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error('Network Error');
+        (error as any).response = {
+          status: 500,
+          data: { errors: ['Server Error'] }, // No message property
+        };
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow(ApiResponseError);
+    });
+
+    test('handles error without toString method', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = { message: 'Custom Error' }; // No toString method
+        (error as any).response = {
+          status: 400,
+          data: { message: 'Bad Request' },
+        };
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow(ApiResponseError);
+    });
+
+    test('handles error with toString method', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error('Network Error');
+        error.toString = () => 'Custom toString';
+        (error as any).response = {
+          status: 400,
+          data: { message: 'Bad Request' },
+        };
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow(ApiResponseError);
+    });
+
+    test('handles error without request property', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error('Setup Error');
+        // No request property
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow();
+    });
+
+    test('handles error with request but no message', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error();
+        (error as any).request = {};
+        // No message property
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow();
+    });
+
+    test('handles error with request and message', async () => {
+      mock.onGet('/error').reply(() => {
+        const error = new Error('Request Error');
+        (error as any).request = {};
+        throw error;
+      });
+
+      await expect(client.get('/error')).rejects.toThrow();
+    });
+
+    test('handles error with verbose debug logging', async () => {
+      const debugClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        debug: true,
+        debugLevel: 'verbose',
+      });
+
+      const debugMock = new MockPlugin(debugClient.client);
+      debugMock.onGet('/error').reply(() => {
+        const error = new Error('Request Error');
+        (error as any).request = {};
+        throw error;
+      });
+
+      await expect(debugClient.get('/error')).rejects.toThrow();
+      debugMock.restore();
+    });
+
+    test('handles error with normal debug logging', async () => {
+      const debugClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        debug: true,
+        debugLevel: 'normal',
+      });
+
+      const debugMock = new MockPlugin(debugClient.client);
+      debugMock.onGet('/error').reply(() => {
+        const error = new Error('Request Error');
+        (error as any).request = {};
+        throw error;
+      });
+
+      await expect(debugClient.get('/error')).rejects.toThrow();
+      debugMock.restore();
+    });
+
+    test('handles error with verbose debug logging for response errors', async () => {
+      const debugClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        debug: true,
+        debugLevel: 'verbose',
+      });
+
+      const debugMock = new MockPlugin(debugClient.client);
+      debugMock.onGet('/error').reply(() => {
+        const error = new Error('Response Error');
+        (error as any).response = {
+          status: 500,
+          data: { message: 'Server Error' },
+        };
+        throw error;
+      });
+
+      await expect(debugClient.get('/error')).rejects.toThrow();
+      debugMock.restore();
+    });
+
+    test('handles error with normal debug logging for response errors', async () => {
+      const debugClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        debug: true,
+        debugLevel: 'normal',
+      });
+
+      const debugMock = new MockPlugin(debugClient.client);
+      debugMock.onGet('/error').reply(() => {
+        const error = new Error('Response Error');
+        (error as any).response = {
+          status: 500,
+          data: { message: 'Server Error' },
+        };
+        throw error;
+      });
+
+      await expect(debugClient.get('/error')).rejects.toThrow();
+      debugMock.restore();
+    });
+  });
+
+  describe('Retry Mechanism Edge Cases', () => {
+    test('handles retry with custom enableRetry function returning false', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 2,
+          enableRetry: () => false, // Never retry
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(retryClient.get('/test')).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with custom enableRetry function returning true', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          enableRetry: () => true, // Always retry
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(retryClient.get('/test')).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with custom enableRetry function returning undefined', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          enableRetry: () => undefined, // Should use default logic
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(retryClient.get('/test')).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with custom onRetry callback', async () => {
+      const onRetrySpy = jest.fn();
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          onRetry: onRetrySpy,
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(retryClient.get('/test')).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with custom retryDelay function', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          retryDelay: () => 1000, // Fixed 1 second delay
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(retryClient.get('/test')).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with per-request retry config override', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          delayFactor: 100,
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(
+        retryClient.get('/test', {
+          retryConfig: {
+            retries: 2,
+            delayFactor: 200,
+            backoff: 'linear',
+            backoffJitter: 'full',
+          },
+        })
+      ).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with per-request enableRetry override', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          enableRetry: () => true,
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(
+        retryClient.get('/test', {
+          retryConfig: {
+            retries: 1,
+            enableRetry: () => false,
+          },
+        })
+      ).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with per-request onRetry override', async () => {
+      const onRetrySpy = jest.fn();
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(
+        retryClient.get('/test', {
+          retryConfig: {
+            retries: 1,
+            onRetry: onRetrySpy,
+          },
+        })
+      ).rejects.toThrow();
+      retryMock.restore();
+    });
+
+    test('handles retry with per-request retryDelay override', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 1,
+          retryDelay: () => 1000,
+        },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/test').reply(500, { error: 'Server Error' });
+
+      await expect(
+        retryClient.get('/test', {
+          retryConfig: {
+            retries: 1,
+            retryDelay: () => 2000,
+          },
+        })
+      ).rejects.toThrow();
+      retryMock.restore();
+    });
+  });
+
+  describe('Deprecated Methods', () => {
+    test('beforeRequestFilter calls preRequestFilter', async () => {
+      class CustomClient extends HttpClient {
+        public preRequestFilter = jest.fn().mockReturnValue({
+          data: { modified: true },
+          config: { headers: { 'X-Custom': 'test' } },
+        });
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onPost('/test').reply(200, { success: true });
+
+      await customClient.post('/test', { original: true });
+      expect(customClient.preRequestFilter).toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('beforeRequestAction calls preRequestAction', async () => {
+      class CustomClient extends HttpClient {
+        public preRequestAction = jest.fn();
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      await customClient.get('/test');
+      expect(customClient.preRequestAction).toHaveBeenCalled();
+      customMock.restore();
+    });
+  });
+
+  describe('ApiResponseError Class', () => {
+    test('creates ApiResponseError with all properties', () => {
+      const cause = new Error('Original error');
+      const response = { message: 'Not Found' };
+      const error = new ApiResponseError('Test error', 404, response, cause);
+
+      expect(error.message).toBe('Test error');
+      expect(error.status).toBe(404);
+      expect(error.response).toBe(response);
+      expect((error as any).cause).toBe(cause);
+    });
+
+    test('creates ApiResponseError without cause', () => {
+      const response = { message: 'Not Found' };
+      const error = new ApiResponseError('Test error', 404, response);
+
+      expect(error.message).toBe('Test error');
+      expect(error.status).toBe(404);
+      expect(error.response).toBe(response);
+      expect((error as any).cause).toBeUndefined();
+    });
+
+    test('creates ApiResponseError with string response', () => {
+      const error = new ApiResponseError('Test error', 404, 'Not Found');
+
+      expect(error.message).toBe('Test error');
+      expect(error.status).toBe(404);
+      expect(error.response).toBe('Not Found');
+    });
+  });
 });
