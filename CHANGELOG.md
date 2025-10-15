@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.2.1](https://github.com/reggieofarrell/http-client/compare/v1.2.0...v1.2.1) (2025-10-15)
+
+
+### Bug Fixes
+
+* update package.json to fix module exports and adjust main/module paths ([06aa5d9](https://github.com/reggieofarrell/http-client/commit/06aa5d9db490427948323a19977876177bef0154))
+
 ## [1.2.0](https://github.com/reggieofarrell/http-client/compare/v1.1.0...v1.2.0) (2025-10-14)
 
 
