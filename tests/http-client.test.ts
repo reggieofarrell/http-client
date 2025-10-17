@@ -552,18 +552,17 @@ describe('HttpClient', () => {
   });
 
   describe('Request Modification', () => {
-    test('allows request modification through preRequestFilter', async () => {
+    test('allows request modification through beforeRequest', async () => {
       class CustomClient extends HttpClient {
-        protected async preRequestFilter(
+        protected async beforeRequest(
           _requestType: RequestType,
           _url: string,
           data: any,
           config: any
         ) {
-          return {
-            data: { ...data, modified: true },
-            config: { ...config, headers: { ...config.headers, 'X-Custom': 'test' } },
-          };
+          // Modify data and config directly
+          Object.assign(data, { modified: true });
+          config.headers = { ...config.headers, 'X-Custom': 'test' };
         }
       }
 
@@ -686,9 +685,9 @@ describe('HttpClient', () => {
       customMock.restore();
     });
 
-    test('handles preRequestAction hook', async () => {
+    test('handles beforeRequest hook', async () => {
       class CustomClient extends HttpClient {
-        public preRequestAction = jest.fn();
+        public beforeRequest = jest.fn();
       }
 
       const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
@@ -697,7 +696,7 @@ describe('HttpClient', () => {
       customMock.onGet('/test').reply(200, { success: true });
 
       await customClient.get('/test');
-      expect(customClient.preRequestAction).toHaveBeenCalledWith(
+      expect(customClient.beforeRequest).toHaveBeenCalledWith(
         RequestType.GET,
         '/test',
         undefined,
@@ -706,11 +705,13 @@ describe('HttpClient', () => {
       customMock.restore();
     });
 
-    test('handles preRequestFilter hook', async () => {
+    test('handles beforeRequest hook with direct mutation', async () => {
       class CustomClient extends HttpClient {
-        public preRequestFilter = jest.fn().mockReturnValue({
-          data: { modified: true },
-          config: { headers: { 'X-Custom': 'test' } },
+        public beforeRequest = jest.fn().mockImplementation((_requestType, _url, data, config) => {
+          // Simulate direct mutation - replace the data object
+          Object.keys(data).forEach(key => delete data[key]);
+          Object.assign(data, { modified: true });
+          config.headers = { ...config.headers, 'X-Custom': 'test' };
         });
       }
 
@@ -724,7 +725,115 @@ describe('HttpClient', () => {
       });
 
       await customClient.post('/test', { original: true });
-      expect(customClient.preRequestFilter).toHaveBeenCalled();
+      expect(customClient.beforeRequest).toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('handles afterResponse hook', async () => {
+      class CustomClient extends HttpClient {
+        public afterResponse = jest.fn();
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      await customClient.get('/test');
+      expect(customClient.afterResponse).toHaveBeenCalledWith(
+        RequestType.GET,
+        '/test',
+        expect.any(Object), // response object
+        { success: true } // data
+      );
+      customMock.restore();
+    });
+
+    test('handles afterResponse hook with data modification', async () => {
+      class CustomClient extends HttpClient {
+        protected async afterResponse(
+          _requestType: RequestType,
+          _url: string,
+          _response: any,
+          data: any
+        ) {
+          // Modify response data directly
+          data.modified = true;
+          data.timestamp = Date.now();
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      const response = await customClient.get('/test');
+      expect(response.data).toHaveProperty('modified', true);
+      expect(response.data).toHaveProperty('timestamp');
+      expect(response.data.success).toBe(true);
+      customMock.restore();
+    });
+
+    test('afterResponse hook is not called for error responses', async () => {
+      class CustomClient extends HttpClient {
+        public afterResponse = jest.fn();
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow();
+      expect(customClient.afterResponse).not.toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('combined beforeRequest and afterResponse workflow', async () => {
+      class CustomClient extends HttpClient {
+        public beforeRequestSpy = jest.fn();
+        public afterResponseSpy = jest.fn();
+
+        protected async beforeRequest(
+          _requestType: RequestType,
+          _url: string,
+          data: any,
+          config: any
+        ) {
+          this.beforeRequestSpy(_requestType, _url, data, config);
+          // Add request timestamp
+          data.requestTime = Date.now();
+          config.headers = { ...config.headers, 'X-Request-Time': data.requestTime.toString() };
+        }
+
+        protected async afterResponse(
+          _requestType: RequestType,
+          _url: string,
+          response: any,
+          data: any
+        ) {
+          this.afterResponseSpy(_requestType, _url, response, data);
+          // Add response processing timestamp
+          data.responseTime = Date.now();
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onPost('/workflow').reply((config: any) => {
+        const requestData = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
+        expect(requestData.requestTime).toBeDefined();
+        expect(config.headers!['X-Request-Time']).toBeDefined();
+        return [200, { success: true }];
+      });
+
+      const response = await customClient.post('/workflow', { test: true });
+
+      expect(customClient.beforeRequestSpy).toHaveBeenCalled();
+      expect(customClient.afterResponseSpy).toHaveBeenCalled();
+      expect(response.data.responseTime).toBeDefined();
       customMock.restore();
     });
   });
@@ -1122,39 +1231,6 @@ describe('HttpClient', () => {
         })
       ).rejects.toThrow();
       retryMock.restore();
-    });
-  });
-
-  describe('Deprecated Methods', () => {
-    test('beforeRequestFilter calls preRequestFilter', async () => {
-      class CustomClient extends HttpClient {
-        public preRequestFilter = jest.fn().mockReturnValue({
-          data: { modified: true },
-          config: { headers: { 'X-Custom': 'test' } },
-        });
-      }
-
-      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
-      const customMock = new MockPlugin(customClient.client);
-      customMock.onPost('/test').reply(200, { success: true });
-
-      await customClient.post('/test', { original: true });
-      expect(customClient.preRequestFilter).toHaveBeenCalled();
-      customMock.restore();
-    });
-
-    test('beforeRequestAction calls preRequestAction', async () => {
-      class CustomClient extends HttpClient {
-        public preRequestAction = jest.fn();
-      }
-
-      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
-      const customMock = new MockPlugin(customClient.client);
-      customMock.onGet('/test').reply(200, { success: true });
-
-      await customClient.get('/test');
-      expect(customClient.preRequestAction).toHaveBeenCalled();
-      customMock.restore();
     });
   });
 
@@ -1583,39 +1659,6 @@ describe('HttpClient', () => {
         }
 
         mock.restore();
-      });
-    });
-
-    describe('Deprecated Methods', () => {
-      test('beforeRequestFilter calls preRequestFilter', async () => {
-        class CustomClient extends HttpClient {
-          public preRequestFilter = jest.fn().mockReturnValue({
-            data: { modified: true },
-            config: { headers: { 'X-Custom': 'test' } },
-          });
-        }
-
-        const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
-        const customMock = new MockPlugin(customClient.client);
-        customMock.onPost('/test').reply(200, { success: true });
-
-        await customClient.post('/test', { original: true });
-        expect(customClient.preRequestFilter).toHaveBeenCalled();
-        customMock.restore();
-      });
-
-      test('beforeRequestAction calls preRequestAction', async () => {
-        class CustomClient extends HttpClient {
-          public preRequestAction = jest.fn();
-        }
-
-        const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
-        const customMock = new MockPlugin(customClient.client);
-        customMock.onGet('/test').reply(200, { success: true });
-
-        await customClient.get('/test');
-        expect(customClient.preRequestAction).toHaveBeenCalled();
-        customMock.restore();
       });
     });
 

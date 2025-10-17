@@ -417,13 +417,8 @@ export class HttpClient {
     delete config.idempotencyKey;
     delete config.idempotencyConfig;
 
-    // Call beforeRequest hook to potentially modify the request parameters
-    const filteredArgs = await this.preRequestFilter(requestType, url, data, config);
-    data = filteredArgs.data ?? data;
-    config = filteredArgs.config ?? config;
-
-    // Call beforeRequestAction hook to perform any actions before the request is sent
-    await this.preRequestAction(requestType, url, data, config);
+    // Call beforeRequest middleware hook to modify request parameters and perform actions
+    await this.beforeRequest(requestType, url, data, config);
 
     try {
       switch (requestType) {
@@ -452,6 +447,9 @@ export class HttpClient {
       const requestSignature = this.generateRequestSignature(requestType, url, data);
       this.clearIdempotencyKey(requestSignature);
     }
+
+    // Call afterResponse middleware hook for successful responses
+    await this.afterResponse(requestType, url, req!, req!.data);
 
     return { request: req!, data: req!.data };
   }
@@ -495,79 +493,22 @@ export class HttpClient {
   }
 
   /**
-   * Override this method in your extending class to modify the request data or
-   * config before the request is sent.
-   *
-   * @deprecated Use preRequestFilter instead. This will be removed in a future version.
-   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
-   * @param url - The request URL
-   * @param data - The request data
-   * @param config - The request config
-   * @returns The modified request parameters
-   */
-  protected async beforeRequestFilter(
-    requestType: RequestType,
-    url: string,
-    data: any,
-    config: XiorRequestConfig
-  ) {
-    return this.preRequestFilter(requestType, url, data, config);
-  }
-
-  /**
-   * Define this requestType in your extending class to globally modify the
-   * request data or config before the request is sent.
+   * Override this method in your extending class to modify request parameters
+   * and perform actions before the request is sent. You can modify the `data`
+   * and `config` objects directly as they are passed by reference.
    *
    * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
    * @param url - The request URL
-   * @param data - The request data
-   * @param config - The request config
-   * @returns The modified request parameters
+   * @param data - The request data (mutable)
+   * @param config - The request config (mutable)
    */
-  protected async preRequestFilter(
-    _requestType: RequestType,
-    _url: string,
-    data: any,
-    config: XiorRequestConfig
-  ): Promise<{ data: any; config: XiorRequestConfig }> {
-    return { data, config };
-  }
-
-  /**
-   * Override this method in your extending class to perform any actions before
-   * the request is sent such as logging the request details. By default, this will
-   * log the request details if debug is enabled.
-   *
-   * @deprecated Use preRequestAction instead. This will be removed in a future version.
-   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
-   * @param url - The request URL
-   * @param data - The request data
-   * @param config - The request config
-   */
-  protected async beforeRequestAction(
+  protected async beforeRequest(
     requestType: RequestType,
     url: string,
     data: any,
     config: XiorRequestConfig
   ): Promise<void> {
-    return this.preRequestAction(requestType, url, data, config);
-  }
-
-  /**
-   * Override this method in your extending class to perform any actions before
-   * the request is sent such as logging the request details. By default, this will
-   * log the request details if debug is enabled.
-   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
-   * @param url - The request URL
-   * @param data - The request data
-   * @param config - The request config
-   */
-  protected async preRequestAction(
-    requestType: RequestType,
-    url: string,
-    data: any,
-    config: XiorRequestConfig
-  ): Promise<void> {
+    // Default implementation - log request details if debug is enabled
     if (this.debug) {
       if (this.debugLevel === 'verbose') {
         logData(`[${this.name}] ${requestType} ${url}`, { data, config });
@@ -575,6 +516,25 @@ export class HttpClient {
         logData(`[${this.name}] ${requestType} ${url}`, { data });
       }
     }
+  }
+
+  /**
+   * Override this method in your extending class to modify response data
+   * and perform actions after receiving a successful response. You can modify
+   * the `response.data` directly as it is passed by reference.
+   *
+   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
+   * @param url - The request URL
+   * @param response - The xior response object (mutable)
+   * @param data - The response data (mutable reference to response.data)
+   */
+  protected async afterResponse(
+    _requestType: RequestType,
+    _url: string,
+    _response: XiorResponse,
+    _data: any
+  ): Promise<void> {
+    // Default implementation - override in extending classes
   }
 
   /**

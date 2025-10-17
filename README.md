@@ -740,6 +740,158 @@ const response = await xiorInstance.get('/custom-endpoint');
 const { data } = await client.get<SomeResponseType>('/endpoint')
 ```
 
+### Middleware Hooks
+
+The `HttpClient` provides middleware-style hooks that allow you to modify requests and responses. These hooks are designed for direct mutation of parameters, making them more efficient and easier to use.
+
+#### beforeRequest Hook
+
+The `beforeRequest` hook is called before each request is sent. You can modify the request data and configuration directly:
+
+```typescript
+import { HttpClient } from '@reggieofarrell/http-client';
+
+class CustomClient extends HttpClient {
+  protected async beforeRequest(
+    requestType: RequestType,
+    url: string,
+    data: any,
+    config: XiorRequestConfig
+  ): Promise<void> {
+    // Add authentication token
+    if (this.authToken) {
+      config.headers = {
+        ...config.headers,
+        'Authorization': `Bearer ${this.authToken}`
+      };
+    }
+
+    // Add request timestamp
+    if (data && typeof data === 'object') {
+      data.requestTime = Date.now();
+    }
+
+    // Log request details
+    console.log(`Making ${requestType} request to ${url}`);
+  }
+}
+
+const client = new CustomClient({
+  baseURL: 'https://api.example.com'
+});
+```
+
+#### afterResponse Hook
+
+The `afterResponse` hook is called after receiving a successful response (2xx status codes). You can modify the response data directly:
+
+```typescript
+import { HttpClient } from '@reggieofarrell/http-client';
+
+class CustomClient extends HttpClient {
+  protected async afterResponse(
+    requestType: RequestType,
+    url: string,
+    response: XiorResponse,
+    data: any
+  ): Promise<void> {
+    // Add processing timestamp
+    data.processedAt = Date.now();
+
+    // Transform response data
+    if (data.items && Array.isArray(data.items)) {
+      data.itemCount = data.items.length;
+    }
+
+    // Log response details
+    console.log(`Received ${requestType} response from ${url}: ${response.status}`);
+  }
+}
+```
+
+#### Combined Middleware Workflow
+
+You can use both hooks together to create a complete request/response processing pipeline:
+
+```typescript
+import { HttpClient } from '@reggieofarrell/http-client';
+
+class ApiClient extends HttpClient {
+  private requestId = 0;
+
+  protected async beforeRequest(
+    requestType: RequestType,
+    url: string,
+    data: any,
+    config: XiorRequestConfig
+  ): Promise<void> {
+    // Generate unique request ID
+    const id = ++this.requestId;
+
+    // Add request ID to headers
+    config.headers = {
+      ...config.headers,
+      'X-Request-ID': id.toString()
+    };
+
+    // Add request ID to data if it's an object
+    if (data && typeof data === 'object') {
+      data.requestId = id;
+    }
+
+    console.log(`[${id}] Starting ${requestType} ${url}`);
+  }
+
+  protected async afterResponse(
+    requestType: RequestType,
+    url: string,
+    response: XiorResponse,
+    data: any
+  ): Promise<void> {
+    // Add response metadata
+    data.responseTime = Date.now();
+    data.requestId = response.headers['x-request-id'];
+
+    console.log(`[${data.requestId}] Completed ${requestType} ${url} - ${response.status}`);
+  }
+}
+
+// Usage
+const client = new ApiClient({
+  baseURL: 'https://api.example.com'
+});
+
+// All requests will have request IDs and logging
+const { data } = await client.post('/users', { name: 'John' });
+// Console output:
+// [1] Starting POST /users
+// [1] Completed POST /users - 201
+```
+
+#### Error Handling
+
+The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method:
+
+```typescript
+class CustomClient extends HttpClient {
+  protected async afterResponse(
+    requestType: RequestType,
+    url: string,
+    response: XiorResponse,
+    data: any
+  ): Promise<void> {
+    // This is only called for successful responses
+    console.log('Request succeeded:', response.status);
+  }
+
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    // This is called for error responses
+    console.log('Request failed:', error.message);
+    super.errorHandler(error, reqType, url);
+  }
+}
+```
+
 ### Extending the HttpClient
 
 You can extend the `HttpClient` class to add custom functionality:
