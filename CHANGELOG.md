@@ -2,17 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
-## [Unreleased]
+## [2.1.0](https://github.com/reggieofarrell/http-client/compare/v2.0.0...v2.1.0) (2025-10-17)
+
 
 ### Features
 
-* add customizable error message extraction with support for dot notation paths and function extractors
-* add per-request errorMessagePath override capability
-* add fallback to statusText when custom path doesn't contain a message
-* add error message path auto-detection to code generator
-* add manual errorMessagePath configuration option to generateClient()
-* add autoDetectErrorPath option to disable auto-detection
-* generate clients with configured error message paths in constructor
+* introduce OpenAPI SDK Code Generator for strongly-typed client generation ([#9](https://github.com/reggieofarrell/http-client/issues/9)) ([c2268f3](https://github.com/reggieofarrell/http-client/commit/c2268f313cbdfe5a24c4477fa4b14474af56abf3))
 
 ## [2.0.0](https://github.com/reggieofarrell/http-client/compare/v1.2.1...v2.0.0) (2025-10-17)
 
