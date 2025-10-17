@@ -108,6 +108,7 @@ const { data } = await client.get('/endpoint', {
     backoff: 'linear',
     enableRetry: (config, error) => {
       // Custom retry logic - only retry on specific errors
+      // Note: error is a XiorError during retry evaluation
       return error.response?.status === 503;
     }
   }
@@ -183,7 +184,8 @@ const client = new HttpClient({
     retries: 3,
     delayFactor: 1000,
     enableRetry: (config, error) => {
-      // Retry on timeout errors
+      // Retry on timeout errors and server errors
+      // Note: error is a XiorError during retry evaluation
       return error.name === 'AbortError' ||
              (error.response && error.response.status >= 500);
     }
@@ -775,19 +777,231 @@ const users = await apiClient.getUsers();
 
 ### Error Handling
 
-The `HttpClient` provides comprehensive error handling:
+The `HttpClient` provides comprehensive error handling with stable error types:
 
 ```typescript
+import { HttpClient, NetworkError, TimeoutError, HttpError, SerializationError, HttpErrorCategory } from '@reggieofarrell/http-client';
+
 try {
   const { data } = await client.get('/endpoint');
   console.log(data);
 } catch (error) {
-  if (error instanceof ApiResponseError) {
-    console.log('API Error:', error.status, error.response);
-  } else {
-    console.log('Network Error:', error.message);
+  if (error instanceof HttpError) {
+    console.log('HTTP Error:', error.status, error.category, error.response);
+    console.log('Retriable:', error.isRetriable);
+
+    // Handle specific error categories
+    switch (error.category) {
+      case HttpErrorCategory.AUTHENTICATION:
+        console.log('Authentication failed');
+        break;
+      case HttpErrorCategory.RATE_LIMIT:
+        console.log('Rate limited, retry after delay');
+        break;
+      case HttpErrorCategory.SERVER_ERROR:
+        console.log('Server error, may be retriable');
+        break;
+    }
+  } else if (error instanceof NetworkError) {
+    console.log('Network Error:', error.metadata.error.type, error.metadata.error.message);
+    console.log('Retriable:', error.isRetriable);
+  } else if (error instanceof TimeoutError) {
+    console.log('Timeout Error:', error.metadata.error.message);
+    console.log('Retriable:', error.isRetriable);
+  } else if (error instanceof SerializationError) {
+    console.log('Serialization Error:', error.message);
+    console.log('Retriable:', error.isRetriable);
   }
 }
+```
+
+#### Error Types
+
+The HTTP client provides four stable error types:
+
+1. **`HttpError`** - HTTP 4xx/5xx responses
+   - Properties: `status`, `category`, `statusText`, `response`, `isRetriable`
+   - Categories: `AUTHENTICATION`, `NOT_FOUND`, `RATE_LIMIT`, `VALIDATION`, `CLIENT_ERROR`, `SERVER_ERROR`
+
+2. **`NetworkError`** - Network connectivity issues
+   - Properties: `code`, `isRetriable`, `metadata` (includes error details)
+   - Always retriable by default
+
+3. **`TimeoutError`** - Request timeout
+   - Properties: `code`, `isRetriable`, `metadata` (includes timeout details)
+   - Always retriable by default
+
+4. **`SerializationError`** - Request/response serialization failures
+   - Properties: `code`, `isRetriable`, `metadata`
+   - Not retriable by default
+
+#### Error Metadata
+
+All errors include comprehensive diagnostic metadata:
+
+```typescript
+interface ErrorMetadata {
+  request: {
+    method: string;
+    url: string;
+    baseURL: string;
+    headers: Record<string, any>;
+    timeout?: number;
+    timestamp: string; // ISO format
+  };
+  retryCount?: number;
+  clientName: string;
+}
+```
+
+#### Retry Logic
+
+The retry system automatically uses the `isRetriable` property from error instances:
+
+```typescript
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  retryConfig: {
+    retries: 3,
+    // Custom retry logic can override isRetriable
+    enableRetry: (config, error) => {
+      // The error parameter is a XiorError during retry evaluation
+      // but will be converted to HttpClientError types when thrown
+
+      // Check if it's one of our new error types
+      if ((error as any).isRetriable !== undefined) {
+        return (error as any).isRetriable;
+      }
+
+      // Fallback to standard HTTP retry logic
+      if (!error.response) return true; // Network errors
+      return error.response.status >= 500; // 5xx errors
+    }
+  }
+});
+```
+
+#### Retry Logic and Error Types
+
+**Important**: The `enableRetry` function receives a `XiorError` during retry evaluation, but the final thrown errors are converted to our stable error types (`HttpError`, `NetworkError`, etc.).
+
+```typescript
+import { HttpClient, classifyErrorForRetry } from '@reggieofarrell/http-client';
+
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  retryConfig: {
+    retries: 3,
+    enableRetry: (config, error) => {
+      // Use our error classification helper for consistent logic
+      const classification = classifyErrorForRetry(error);
+      return classification.isRetriable;
+    }
+  }
+});
+
+// When an error is thrown, it will be one of our stable error types
+try {
+  const { data } = await client.get('/endpoint');
+} catch (error) {
+  if (error instanceof HttpError) {
+    // This is now an HttpError with isRetriable property
+    console.log('Retriable:', error.isRetriable);
+  }
+}
+```
+
+#### Advanced Retry Logic with Error Classification
+
+For more sophisticated retry logic, you can use the `classifyErrorForRetry` helper function to access our error type logic during retry evaluation:
+
+```typescript
+import { HttpClient, classifyErrorForRetry, HttpErrorCategory } from '@reggieofarrell/http-client';
+
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  retryConfig: {
+    retries: 3,
+    enableRetry: (config, error) => {
+      // Get structured error information
+      const classification = classifyErrorForRetry(error);
+
+      // Work with our error types' logic
+      if (classification.type === 'http') {
+        // Handle HTTP errors with full context
+        if (classification.category === HttpErrorCategory.RATE_LIMIT) {
+          return true; // Always retry rate limits
+        }
+
+        if (classification.category === HttpErrorCategory.AUTHENTICATION) {
+          return false; // Never retry auth errors
+        }
+
+        if (classification.status === 429) {
+          return true; // Custom logic for specific status codes
+        }
+
+        // Use the pre-calculated retriability
+        return classification.isRetriable;
+      }
+
+      if (classification.type === 'timeout') {
+        return true; // Always retry timeouts
+      }
+
+      if (classification.type === 'network') {
+        return true; // Always retry network errors
+      }
+
+      if (classification.type === 'serialization') {
+        return false; // Never retry serialization errors
+      }
+
+      // Fallback to the classification's retriability
+      return classification.isRetriable;
+    }
+  }
+});
+```
+
+#### Error Classification
+
+The `classifyErrorForRetry` function returns an `ErrorClassification` object:
+
+```typescript
+interface ErrorClassification {
+  type: 'network' | 'timeout' | 'http' | 'serialization' | 'unknown';
+  isRetriable: boolean;
+  status?: number;           // For HTTP errors
+  category?: HttpErrorCategory; // For HTTP errors
+}
+```
+
+This gives you access to:
+- **Error type detection** - Know if it's a network, timeout, HTTP, or serialization error
+- **Pre-calculated retriability** - Use our smart defaults with `classification.isRetriable`
+- **HTTP context** - Access status codes and error categories for HTTP errors
+- **Type safety** - Work with familiar `HttpErrorCategory` enum values
+
+#### Per-Request Error Classification
+
+You can also use error classification for per-request retry logic:
+
+```typescript
+await client.get('/endpoint', {
+  retryConfig: {
+    enableRetry: (config, error) => {
+      const classification = classifyErrorForRetry(error);
+
+      // Custom per-request logic
+      if (classification.type === 'http' && classification.status === 404) {
+        return false; // Don't retry 404s for this specific endpoint
+      }
+
+      return classification.isRetriable;
+    }
+  }
+});
 ```
 
 ### Debugging
@@ -800,6 +1014,53 @@ const client = new HttpClient({
   debug: true,
   debugLevel: 'verbose' // or 'normal'
 });
+```
+
+## Breaking Changes
+
+### v2.0.0 - Stable Error Types
+
+This version introduces stable error types and removes the legacy `ApiResponseError`:
+
+**Removed:**
+- `ApiResponseError` class
+
+**Added:**
+- `HttpClientError` base class
+- `NetworkError` for network connectivity issues
+- `TimeoutError` for request timeouts
+- `HttpError` for HTTP 4xx/5xx responses
+- `SerializationError` for data serialization failures
+- `HttpErrorCategory` enum for error categorization
+
+**Migration Guide:**
+
+```typescript
+// Before (v1.x)
+try {
+  const { data } = await client.get('/endpoint');
+} catch (error) {
+  if (error instanceof ApiResponseError) {
+    console.log('Status:', error.status);
+    console.log('Response:', error.response);
+  }
+}
+
+// After (v2.x)
+import { HttpError, NetworkError, TimeoutError, SerializationError } from '@reggieofarrell/http-client';
+
+try {
+  const { data } = await client.get('/endpoint');
+} catch (error) {
+  if (error instanceof HttpError) {
+    console.log('Status:', error.status);
+    console.log('Category:', error.category);
+    console.log('Response:', error.response);
+    console.log('Retriable:', error.isRetriable);
+  } else if (error instanceof NetworkError) {
+    console.log('Network issue:', error.metadata.error.type);
+  }
+}
 ```
 
 ## License

@@ -2,6 +2,18 @@ import xior from 'xior';
 import type { XiorError, XiorInstance, XiorRequestConfig, XiorResponse } from 'xior';
 import errorRetryPlugin from 'xior/plugins/error-retry';
 import { logData } from './logger';
+import {
+  NetworkError,
+  TimeoutError,
+  HttpError,
+  SerializationError,
+  classifyHttpError,
+  isTimeoutError,
+  buildErrorMetadata,
+  buildNetworkErrorMetadata,
+  buildHttpErrorResponse,
+  classifyErrorForRetry,
+} from './errors';
 
 export enum RequestType {
   GET = 'GET',
@@ -42,6 +54,8 @@ export interface HttpClientRetryConfig {
   backoffJitter?: JitterOptions;
   /**
    * Function to determine if a request should be retried
+   * Note: The error parameter will be a XiorError during retry evaluation,
+   * but will be converted to HttpClientError types when thrown
    */
   enableRetry?: boolean | ((config: XiorRequestConfig, error: XiorError) => boolean | undefined);
 }
@@ -153,9 +167,9 @@ export class HttpClient {
       backoffJitter: 'none',
       // By default, retry on 5xx errors and network errors
       enableRetry: (_config, error) => {
-        if (!error.response) return true; // Network errors
-        const status = error.response.status;
-        return status >= 500 && status < 600; // 5xx errors
+        // Use our error classification helper for consistent logic
+        const classification = classifyErrorForRetry(error);
+        return classification.isRetriable;
       },
     };
 
@@ -584,28 +598,46 @@ export class HttpClient {
         }
       }
 
-      if (error.response.data && error.response.status && error.response.data?.message) {
-        throw new ApiResponseError(
-          `[${this.name}] ${reqType} ${url} : [${error.response.status}] ${error.response.data.message}`,
-          error.response.status,
-          error.response.data,
-          error.toString ? error.toString() : error
-        );
-      } else if (
-        error.response &&
-        error.response.status &&
-        error.response.data &&
-        !error.response.data?.message
-      ) {
-        throw new ApiResponseError(
-          `[${this.name}] ${reqType} ${url} : [${error.response.status}]`,
-          error.response.status,
-          error.response.data,
-          error.toString ? error.toString() : error
-        );
-      } else {
-        throw new Error(error);
+      // Build request config for metadata
+      const requestConfig: XiorRequestConfig = {
+        method: reqType,
+        url,
+        baseURL: this.baseURL,
+        headers: error.config?.headers || {},
+        timeout: error.config?.timeout,
+      };
+
+      // Build metadata
+      const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
+
+      // Build response object
+      const response = buildHttpErrorResponse(error.response);
+
+      // Classify the error
+      const category = classifyHttpError(error.response.status);
+
+      // Create error message
+      const statusText = error.response.statusText || '';
+      const message = error.response.data?.message
+        ? `[${this.name}] ${reqType} ${url} : [${error.response.status}] ${error.response.data.message}`
+        : `[${this.name}] ${reqType} ${url} : [${error.response.status}] ${statusText}`;
+
+      // Check if enableRetry function overrides the default retriability
+      let isRetriable: boolean | undefined;
+      if (this.retryConfig.enableRetry && typeof this.retryConfig.enableRetry === 'function') {
+        isRetriable = this.retryConfig.enableRetry(requestConfig, error);
       }
+
+      throw new HttpError(
+        message,
+        error.response.status,
+        category,
+        statusText,
+        response,
+        metadata,
+        error,
+        isRetriable
+      );
     } else {
       this.handleResponseNotReceivedOrOtherError(error, reqType, url);
     }
@@ -618,20 +650,37 @@ export class HttpClient {
    * @param url - The request URL
    */
   protected handleResponseNotReceivedOrOtherError(error: any, reqType: RequestType, url: string) {
+    // Build request config for metadata
+    const requestConfig: XiorRequestConfig = {
+      method: reqType,
+      url,
+      baseURL: this.baseURL,
+      headers: error.config?.headers || {},
+      timeout: error.config?.timeout,
+    };
+
     if (error.request) {
       // The request was made but no response was received
       // `error.request` is an instance of XMLHttpRequest in the browser and an instance of
       // http.ClientRequest in node.js
       if (this.debug) {
         if (this.debugLevel === 'verbose') {
-          logData(`${this.name}] ${reqType} ${url}: error.config`, error.config);
+          logData(`[${this.name}] ${reqType} ${url}: error.config`, error.config);
         }
         logData(`[${this.name}] ${reqType} ${url} : error.request`, error.request);
       }
 
-      const err = new Error(`[${this.name}] ${reqType} ${url} [no response] : ${error.message}`);
-      (err as any).cause = error;
-      throw err;
+      // Check if this is a timeout error
+      if (isTimeoutError(error)) {
+        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
+        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [timeout] : ${error.message || 'Request timeout'}`;
+        throw new TimeoutError(message, metadata, error);
+      } else {
+        // Network error (connection refused, DNS failure, etc.)
+        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
+        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [network error] : ${error.message || 'Network error'}`;
+        throw new NetworkError(message, metadata, error);
+      }
     } else {
       // Something happened in setting up the request that triggered an Error
       if (this.debug) {
@@ -642,48 +691,53 @@ export class HttpClient {
         }
       }
 
-      if (error.message) {
-        const err = new Error(`[${this.name}] ${reqType} ${url} : ${error.message}`);
-        (err as any).cause = error;
-        throw err;
-      } else {
-        throw new Error(error);
+      // Check if this is a serialization error (JSON parsing, etc.)
+      if (this.isSerializationError(error)) {
+        const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
+        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [serialization error] : ${error.message || 'Serialization error'}`;
+        throw new SerializationError(message, metadata, error);
       }
+
+      // Check if this is a timeout error
+      if (isTimeoutError(error)) {
+        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
+        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [timeout] : ${error.message || 'Request timeout'}`;
+        throw new TimeoutError(message, metadata, error);
+      }
+
+      // Default to network error for other cases
+      const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
+      const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [network error] : ${error.message || 'Network error'}`;
+      throw new NetworkError(message, metadata, error);
     }
   }
-}
-
-/**
- * Base class for API errors.
- * @extends Error
- */
-export class ApiResponseError extends Error {
-  /**
-   * The HTTP status code.
-   */
-  status: number;
-  /**
-   * The response text.
-   */
-  response: Record<string, any> | string;
-  /**
-   * The cause of the error. Usually a XiorError.
-   */
-  cause?: any;
 
   /**
-   * Creates an instance of ApiError.
-   * @param {string} message - The error message.
-   * @param {number} status - The HTTP status code.
-   * @param {object|string} response - The response.
-   * @param {any} cause - The cause of the error.
+   * Determines if an error is a serialization error
+   * @param error - The error to check
+   * @returns true if the error indicates serialization failure
    */
-  constructor(message: string, status: number, response: object | string, cause?: any) {
-    super(message);
-    if (cause) {
-      (this as any).cause = cause;
+  private isSerializationError(error: any): boolean {
+    const message = error.message?.toLowerCase() || '';
+
+    // Common serialization error patterns
+    if (
+      message.includes('json') ||
+      message.includes('parse') ||
+      message.includes('serialize') ||
+      message.includes('deserialize') ||
+      message.includes('invalid json') ||
+      message.includes('unexpected token') ||
+      message.includes('syntax error')
+    ) {
+      return true;
     }
-    this.status = status;
-    this.response = response;
+
+    // Check for specific error types
+    if (error.name === 'SyntaxError' || error.name === 'TypeError') {
+      return true;
+    }
+
+    return false;
   }
 }
