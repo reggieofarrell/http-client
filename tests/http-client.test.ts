@@ -1819,4 +1819,215 @@ describe('HttpClient', () => {
       });
     });
   });
+
+  describe('processError method', () => {
+    // Create a test client that extends HttpClient to access protected methods
+    class TestClient extends HttpClient {
+      public testProcessError(error: any, reqType: RequestType, url: string) {
+        return this.processError(error, reqType, url);
+      }
+    }
+
+    let testClient: TestClient;
+
+    beforeEach(() => {
+      testClient = new TestClient({ baseURL: 'https://api.example.com', debug: true });
+    });
+
+    test('processes HTTP response errors correctly', () => {
+      const error = {
+        response: {
+          status: 404,
+          statusText: 'Not Found',
+          data: { message: 'Resource not found' },
+        },
+        config: { headers: {}, timeout: 5000 },
+      };
+
+      const processedError = testClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(HttpError);
+      if (processedError instanceof HttpError) {
+        expect(processedError.status).toBe(404);
+      }
+      expect(processedError.message).toContain('404');
+      expect(processedError.message).toContain('Resource not found');
+    });
+
+    test('processes network errors correctly', () => {
+      const error = {
+        message: 'Network Error',
+        config: { headers: {}, timeout: 5000 },
+      };
+
+      const processedError = testClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(NetworkError);
+      expect(processedError.message).toContain('network error');
+      expect(processedError.message).toContain('Network Error');
+    });
+
+    test('processes timeout errors correctly', () => {
+      const error = {
+        message: 'timeout of 5000ms exceeded',
+        code: 'ECONNABORTED',
+        config: { headers: {}, timeout: 5000 },
+      };
+
+      const processedError = testClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(TimeoutError);
+      expect(processedError.message).toContain('timeout');
+      expect(processedError.message).toContain('timeout of 5000ms exceeded');
+    });
+
+    test('processes serialization errors correctly', () => {
+      const error = {
+        message: 'Unexpected token in JSON',
+        name: 'SyntaxError',
+        config: { headers: {}, timeout: 5000 },
+      };
+
+      const processedError = testClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(SerializationError);
+      expect(processedError.message).toContain('serialization error');
+      expect(processedError.message).toContain('Unexpected token in JSON');
+    });
+
+    test('builds request config metadata correctly', () => {
+      const error = {
+        response: {
+          status: 500,
+          statusText: 'Internal Server Error',
+          data: { error: 'Server error' },
+        },
+        config: {
+          headers: { Authorization: 'Bearer token' },
+          timeout: 10000,
+        },
+      };
+
+      const processedError = testClient.testProcessError(error, RequestType.POST, '/api/data');
+
+      expect(processedError).toBeInstanceOf(HttpError);
+      if (processedError instanceof HttpError) {
+        expect(processedError.metadata.request.method).toBe('POST');
+        expect(processedError.metadata.request.url).toBe('/api/data');
+        expect(processedError.metadata.request.baseURL).toBe('https://api.example.com');
+        expect(processedError.metadata.request.headers).toEqual({ Authorization: 'Bearer token' });
+        expect(processedError.metadata.request.timeout).toBe(10000);
+      }
+    });
+
+    test('handles retry configuration correctly', () => {
+      class TestClientWithRetry extends HttpClient {
+        public testProcessError(error: any, reqType: RequestType, url: string) {
+          return this.processError(error, reqType, url);
+        }
+      }
+
+      const customClient = new TestClientWithRetry({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          enableRetry: jest.fn().mockReturnValue(true),
+        },
+      });
+
+      const error = {
+        response: {
+          status: 500,
+          statusText: 'Internal Server Error',
+          data: { error: 'Server error' },
+        },
+        config: { headers: {}, timeout: 5000 },
+      };
+
+      const processedError = customClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(HttpError);
+      if (processedError instanceof HttpError) {
+        expect(processedError.isRetriable).toBe(true);
+      }
+      expect(customClient.retryConfig.enableRetry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'GET',
+          url: '/test',
+        }),
+        error
+      );
+    });
+  });
+
+  describe('Child class error handling patterns', () => {
+    test('child class can override errorHandler and use processError', async () => {
+      class CustomClient extends HttpClient {
+        public customErrorHandler = jest.fn();
+        public processErrorCalled = false;
+
+        protected errorHandler(error: any, reqType: RequestType, url: string) {
+          this.processErrorCalled = true;
+          const processedError = this.processError(error, reqType, url);
+          this.customErrorHandler(processedError);
+          throw processedError;
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow();
+      expect(customClient.processErrorCalled).toBe(true);
+      expect(customClient.customErrorHandler).toHaveBeenCalledWith(expect.any(HttpError));
+      customMock.restore();
+    });
+
+    test('child class can modify error before throwing', async () => {
+      class CustomClient extends HttpClient {
+        protected errorHandler(error: any, reqType: RequestType, url: string) {
+          const processedError = this.processError(error, reqType, url);
+          // Modify the error message
+          processedError.message = `[Custom] ${processedError.message}`;
+          throw processedError;
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(404, { message: 'Not found' });
+
+      await expect(customClient.get('/error')).rejects.toThrow('[Custom]');
+      customMock.restore();
+    });
+
+    test('child class can add custom logic before throwing', async () => {
+      class CustomClient extends HttpClient {
+        public errorLog: any[] = [];
+
+        protected errorHandler(error: any, reqType: RequestType, url: string) {
+          const processedError = this.processError(error, reqType, url);
+
+          // Add custom logging
+          this.errorLog.push({
+            type: processedError.constructor.name,
+            message: processedError.message,
+            timestamp: new Date().toISOString(),
+          });
+
+          throw processedError;
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow();
+      expect(customClient.errorLog).toHaveLength(1);
+      expect(customClient.errorLog[0].type).toBe('HttpError');
+      expect(customClient.errorLog[0].message).toContain('500');
+      customMock.restore();
+    });
+  });
 });

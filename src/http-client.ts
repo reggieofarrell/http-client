@@ -538,18 +538,29 @@ export class HttpClient {
   }
 
   /**
-   * Handles errors from the xior instance. Override this method for
-   * custom error handling functionality specific to the API you are
-   * consuming.
-   * @param error - The error object
+   * Processes all types of errors and returns the appropriate error object
+   * This method handles all the core error processing logic that should be preserved
+   * @param error - The error object from xior
    * @param reqType - The request type
    * @param url - The request URL
-   * @see https://suhaotian.github.io/xior
+   * @returns A fully constructed error object (HttpError, NetworkError, TimeoutError, or SerializationError)
    */
-  protected errorHandler(error: any, reqType: RequestType, url: string) {
+  protected processError(
+    error: any,
+    reqType: RequestType,
+    url: string
+  ): HttpError | NetworkError | TimeoutError | SerializationError {
+    // Build request config for metadata (common to all error types)
+    const requestConfig: XiorRequestConfig = {
+      method: reqType,
+      url,
+      baseURL: this.baseURL,
+      headers: error.config?.headers || {},
+      timeout: error.config?.timeout,
+    };
+
     if (error.response) {
-      // The request was made and the server responded with a status code
-      // that falls out of the range of 2xx
+      // HTTP response error (status code outside 2xx range)
       if (this.debug) {
         if (this.debugLevel === 'verbose') {
           logData(`[${this.name}] ${reqType} ${url} : error.response`, error.response);
@@ -558,25 +569,9 @@ export class HttpClient {
         }
       }
 
-      // Build request config for metadata
-      const requestConfig: XiorRequestConfig = {
-        method: reqType,
-        url,
-        baseURL: this.baseURL,
-        headers: error.config?.headers || {},
-        timeout: error.config?.timeout,
-      };
-
-      // Build metadata
       const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
-
-      // Build response object
       const response = buildHttpErrorResponse(error.response);
-
-      // Classify the error
       const category = classifyHttpError(error.response.status);
-
-      // Create error message
       const statusText = error.response.statusText || '';
       const message = error.response.data?.message
         ? `[${this.name}] ${reqType} ${url} : [${error.response.status}] ${error.response.data.message}`
@@ -588,7 +583,7 @@ export class HttpClient {
         isRetriable = this.retryConfig.enableRetry(requestConfig, error);
       }
 
-      throw new HttpError(
+      return new HttpError(
         message,
         error.response.status,
         category,
@@ -599,50 +594,7 @@ export class HttpClient {
         isRetriable
       );
     } else {
-      this.handleResponseNotReceivedOrOtherError(error, reqType, url);
-    }
-  }
-
-  /**
-   * Handles errors where a response is not received or other errors occur
-   * @param error - The error object
-   * @param reqType - The request type
-   * @param url - The request URL
-   */
-  protected handleResponseNotReceivedOrOtherError(error: any, reqType: RequestType, url: string) {
-    // Build request config for metadata
-    const requestConfig: XiorRequestConfig = {
-      method: reqType,
-      url,
-      baseURL: this.baseURL,
-      headers: error.config?.headers || {},
-      timeout: error.config?.timeout,
-    };
-
-    if (error.request) {
-      // The request was made but no response was received
-      // `error.request` is an instance of XMLHttpRequest in the browser and an instance of
-      // http.ClientRequest in node.js
-      if (this.debug) {
-        if (this.debugLevel === 'verbose') {
-          logData(`[${this.name}] ${reqType} ${url}: error.config`, error.config);
-        }
-        logData(`[${this.name}] ${reqType} ${url} : error.request`, error.request);
-      }
-
-      // Check if this is a timeout error
-      if (isTimeoutError(error)) {
-        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
-        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [timeout] : ${error.message || 'Request timeout'}`;
-        throw new TimeoutError(message, metadata, error);
-      } else {
-        // Network error (connection refused, DNS failure, etc.)
-        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
-        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [network error] : ${error.message || 'Network error'}`;
-        throw new NetworkError(message, metadata, error);
-      }
-    } else {
-      // Something happened in setting up the request that triggered an Error
+      // No response received or other errors (network, timeout, serialization, etc.)
       if (this.debug) {
         if (this.debugLevel === 'verbose') {
           logData(`[${this.name}] ${reqType} ${url} : error`, error);
@@ -651,25 +603,42 @@ export class HttpClient {
         }
       }
 
-      // Check if this is a serialization error (JSON parsing, etc.)
       if (this.isSerializationError(error)) {
         const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
         const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [serialization error] : ${error.message || 'Serialization error'}`;
-        throw new SerializationError(message, metadata, error);
+        return new SerializationError(message, metadata, error);
       }
 
-      // Check if this is a timeout error
       if (isTimeoutError(error)) {
         const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
         const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [timeout] : ${error.message || 'Request timeout'}`;
-        throw new TimeoutError(message, metadata, error);
+        return new TimeoutError(message, metadata, error);
       }
 
       // Default to network error for other cases
       const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
       const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [network error] : ${error.message || 'Network error'}`;
-      throw new NetworkError(message, metadata, error);
+      return new NetworkError(message, metadata, error);
     }
+  }
+
+  /**
+   * Handles errors from the xior instance. Override this method for
+   * custom error handling functionality specific to the API you are
+   * consuming.
+   *
+   * For custom error handling, you can:
+   * 1. Call this.processError to get the processed error object, then customize and throw it
+   * 2. Completely override the error handling logic
+   * 3. Add custom logging, metrics, or other side effects before throwing
+   *
+   * @param error - The error object
+   * @param reqType - The request type
+   * @param url - The request URL
+   * @see https://suhaotian.github.io/xior
+   */
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    throw this.processError(error, reqType, url);
   }
 
   /**
