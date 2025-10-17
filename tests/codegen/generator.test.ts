@@ -8,12 +8,27 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { generateClient } from '../../src/codegen/generator';
 import * as sampleOpenApiSpec from './sample-openapi.json';
+import * as sampleSwagger2Spec from './sample-swagger2.json';
 
 // Mock openapi-typescript
 jest.mock('openapi-typescript', () => {
   return jest
     .fn()
     .mockResolvedValue('// Generated types\ninterface User { id: string; name: string; }');
+});
+
+// Mock swagger2openapi for Swagger 2.0 tests
+jest.mock('swagger2openapi', () => {
+  return {
+    convertObj: jest.fn().mockResolvedValue({
+      openapi: {
+        openapi: '3.0.0',
+        info: { title: 'Converted API', version: '1.0.0' },
+        paths: {},
+        components: { schemas: {} },
+      },
+    }),
+  };
 });
 
 describe('Code Generator', () => {
@@ -441,6 +456,68 @@ describe('Code Generator', () => {
       // Should use manual path, not auto-detected
       expect(clientContent).toContain("errorMessagePath: 'data.custom.error'");
       expect(clientContent).not.toContain("errorMessagePath: 'data.error.message'");
+    });
+  });
+
+  describe('Swagger 2.0 Support', () => {
+    it('should detect and convert Swagger 2.0 specifications', async () => {
+      await generateClient({
+        openApiSpec: sampleSwagger2Spec,
+        outputDir: testOutputDir,
+        clientName: 'Swagger2ApiClient',
+      });
+
+      // Check that main files were created
+      const clientFile = join(testOutputDir, 'client.ts');
+      const indexFile = join(testOutputDir, 'index.ts');
+
+      await expect(fs.access(clientFile)).resolves.toBeUndefined();
+      await expect(fs.access(indexFile)).resolves.toBeUndefined();
+      // Types file may not exist if openapi-typescript fails (which is expected in tests)
+
+      // Check client content
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+      expect(clientContent).toContain('export class Swagger2ApiClient');
+      // Note: The mocked conversion returns empty paths, so no route groups are generated
+      // In real usage, the converted spec would have the proper paths and generate route groups
+    });
+
+    it('should handle Swagger 2.0 file paths', async () => {
+      const swagger2File = join(__dirname, 'sample-swagger2.json');
+
+      await generateClient({
+        openApiSpec: swagger2File,
+        outputDir: testOutputDir,
+        clientName: 'FileSwagger2Client',
+      });
+
+      // Check that files were generated
+      const clientFile = join(testOutputDir, 'client.ts');
+      await expect(fs.access(clientFile)).resolves.toBeUndefined();
+
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+      expect(clientContent).toContain('export class FileSwagger2Client');
+    });
+
+    it('should handle Swagger 2.0 conversion successfully', async () => {
+      // This test verifies that Swagger 2.0 specs are detected and processed
+      // The actual conversion is mocked, but we can verify the detection works
+      const { isSwagger2 } = await import('../../src/codegen/utils/swagger-converter');
+
+      expect(isSwagger2(sampleSwagger2Spec)).toBe(true);
+      expect(isSwagger2(sampleOpenApiSpec)).toBe(false);
+    });
+
+    it('should handle invalid specification format', async () => {
+      const invalidSpec = { invalid: 'spec' };
+
+      await expect(
+        generateClient({
+          openApiSpec: invalidSpec,
+          outputDir: testOutputDir,
+          clientName: 'InvalidClient',
+        })
+      ).rejects.toThrow('Invalid specification format');
     });
   });
 });

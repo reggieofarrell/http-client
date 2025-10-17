@@ -7,12 +7,14 @@
 
 import { promises as fs } from 'fs';
 import { OpenAPIV3 } from 'openapi-types';
+import { ensureOpenAPI3 } from '../utils/swagger-converter.js';
 
 /**
  * Parse an OpenAPI specification from a file path or object
+ * Supports both OpenAPI 3.0+ and Swagger 2.0 specifications
  *
- * @param spec - File path to OpenAPI spec or parsed object
- * @returns Parsed OpenAPI specification
+ * @param spec - File path to OpenAPI/Swagger spec or parsed object
+ * @returns Parsed OpenAPI 3.0+ specification
  * @throws {Error} When the spec cannot be parsed or is invalid
  */
 export async function parseOpenApiSpec(spec: string | object): Promise<OpenAPIV3.Document> {
@@ -38,20 +40,23 @@ export async function parseOpenApiSpec(spec: string | object): Promise<OpenAPIV3
     specData = spec;
   }
 
+  // Convert Swagger 2.0 to OpenAPI 3.0+ if needed
+  const openApiSpec = await ensureOpenAPI3(specData);
+
   // Validate basic OpenAPI structure
-  if (!specData.openapi) {
+  if (!openApiSpec.openapi) {
     throw new Error('Invalid OpenAPI specification: missing openapi version');
   }
 
-  if (!specData.info) {
+  if (!openApiSpec.info) {
     throw new Error('Invalid OpenAPI specification: missing info section');
   }
 
-  if (!specData.paths) {
+  if (!openApiSpec.paths) {
     throw new Error('Invalid OpenAPI specification: missing paths section');
   }
 
-  return specData as OpenAPIV3.Document;
+  return openApiSpec;
 }
 
 /**

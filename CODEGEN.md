@@ -1,6 +1,6 @@
 # OpenAPI SDK Code Generator
 
-The OpenAPI SDK Code Generator is a powerful tool that automatically generates strongly-typed SDK clients from OpenAPI 3.0+ specifications. It creates TypeScript clients that extend the `HttpClient` class with organized route groups and comprehensive TypeScript types.
+The OpenAPI SDK Code Generator is a powerful tool that automatically generates strongly-typed SDK clients from OpenAPI 3.0+ and Swagger 2.0 specifications. It creates TypeScript clients that extend the `HttpClient` class with organized route groups and comprehensive TypeScript types.
 
 ## Features
 
@@ -14,13 +14,21 @@ The OpenAPI SDK Code Generator is a powerful tool that automatically generates s
 
 ## Installation
 
-The code generator is available as a separate export from the http-client package. Install the required peer dependency:
+The code generator is available as a separate export from the http-client package. Install the required peer dependencies:
 
 ```bash
 npm install @reggieofarrell/http-client openapi-typescript
 ```
 
-**Note**: `openapi-typescript` is an optional peer dependency. You only need it if you're using the code generator.
+For Swagger 2.0 support, also install the optional peer dependency:
+
+```bash
+npm install @reggieofarrell/http-client openapi-typescript swagger2openapi
+```
+
+**Note**:
+- `openapi-typescript` is required for type generation
+- `swagger2openapi` is optional and only needed for Swagger 2.0 specifications
 
 ## Quick Start
 
@@ -43,7 +51,7 @@ await generateClient({
 import { generateClient } from '@reggieofarrell/http-client/codegen';
 
 await generateClient({
-  openApiSpec: './openapi.json',        // Path to OpenAPI spec or parsed object
+  openApiSpec: './openapi.json',        // Path to OpenAPI/Swagger spec or parsed object
   outputDir: './src/api-client',        // Output directory for generated code
   clientName: 'MyApiClient',            // Optional: custom client name
 });
@@ -143,7 +151,7 @@ export class UsersRouteGroup {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `openApiSpec` | `string \| object` | Required | OpenAPI specification (file path or parsed object) |
+| `openApiSpec` | `string \| object` | Required | OpenAPI 3.0+ or Swagger 2.0 specification (file path or parsed object) |
 | `outputDir` | `string` | Required | Directory for generated files |
 | `clientName` | `string` | Auto-generated | Name of the generated client class (from spec title or 'ApiClient') |
 | `groupingStrategy` | `'tags' \| 'path'` | `'tags'` | How to group endpoints into route groups |
@@ -654,6 +662,28 @@ The generator recognizes these common error message patterns:
 - **Stripe API**: `data.error.message`
 - **Custom APIs**: `data.errors.0.detail`
 - **Nested errors**: `data.error.details.message`
+
+## Supported Specifications
+
+The code generator supports both modern and legacy API specification formats:
+
+### OpenAPI 3.0+ (Recommended)
+- Full support for OpenAPI 3.0, 3.1, and future versions
+- All features available including advanced schema types, security schemes, and more
+- No additional dependencies required
+
+### Swagger 2.0 (Legacy Support)
+- Automatic detection and conversion to OpenAPI 3.0+ format
+- Requires `swagger2openapi` peer dependency
+- All features available after conversion
+- Backward compatibility for older API specifications
+
+### Automatic Detection
+The generator automatically detects the specification format:
+- **OpenAPI 3.0+**: Specs with `"openapi": "3.0.x"` field
+- **Swagger 2.0**: Specs with `"swagger": "2.0"` field
+
+No manual configuration needed - just provide your spec file and the generator handles the rest!
 
 ## Contributing
 
