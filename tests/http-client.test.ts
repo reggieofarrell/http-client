@@ -254,6 +254,210 @@ describe('HttpClient', () => {
     });
   });
 
+  describe('Error Message Extraction', () => {
+    test('uses default data.message path for error messages', async () => {
+      const errorResponse = { message: 'Custom error message' };
+      mock.onGet('/error').reply(400, errorResponse);
+
+      await expect(client.get('/error')).rejects.toThrow(HttpError);
+      await expect(client.get('/error')).rejects.toMatchObject({
+        message: 'Custom error message',
+      });
+    });
+
+    test('falls back to statusText when data.message is not available', async () => {
+      const errorResponse = { error: 'Some other field' };
+      mock.onGet('/error').reply(400, errorResponse);
+
+      await expect(client.get('/error')).rejects.toThrow(HttpError);
+      await expect(client.get('/error')).rejects.toMatchObject({
+        message: 'ok', // Default statusText from xior mock
+      });
+    });
+
+    test('supports custom string path for error message extraction', async () => {
+      const customClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: 'data.error.detail',
+      });
+
+      const customMock = new MockPlugin(customClient.client);
+      const errorResponse = {
+        error: {
+          detail: 'Validation failed for field X',
+        },
+      };
+      customMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      await expect(customClient.get('/error')).rejects.toMatchObject({
+        message: 'Validation failed for field X',
+      });
+
+      customMock.restore();
+    });
+
+    test('supports function-based error message extraction', async () => {
+      const customClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: response => {
+          // Custom logic to extract message from complex response structure
+          if (response.data?.errors?.length > 0) {
+            return response.data.errors[0].message;
+          }
+          return response.data?.message;
+        },
+      });
+
+      const customMock = new MockPlugin(customClient.client);
+      const errorResponse = {
+        errors: [{ message: 'First validation error' }, { message: 'Second validation error' }],
+      };
+      customMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      await expect(customClient.get('/error')).rejects.toMatchObject({
+        message: 'First validation error',
+      });
+
+      customMock.restore();
+    });
+
+    test('supports per-request error message path override', async () => {
+      const errorResponse = {
+        message: 'Default message',
+        error: {
+          detail: 'Per-request custom message',
+        },
+      };
+      mock.onGet('/error').reply(400, errorResponse);
+
+      await expect(client.get('/error', { errorMessagePath: 'data.error.detail' })).rejects.toThrow(
+        HttpError
+      );
+      await expect(
+        client.get('/error', { errorMessagePath: 'data.error.detail' })
+      ).rejects.toMatchObject({
+        message: 'Per-request custom message',
+      });
+    });
+
+    test('per-request errorMessagePath overrides instance-level config', async () => {
+      const instanceClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: 'data.error.message',
+      });
+
+      const instanceMock = new MockPlugin(instanceClient.client);
+      const errorResponse = {
+        error: {
+          message: 'Instance-level message',
+          detail: 'Per-request override message',
+        },
+      };
+      instanceMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(
+        instanceClient.get('/error', { errorMessagePath: 'data.error.detail' })
+      ).rejects.toThrow(HttpError);
+      await expect(
+        instanceClient.get('/error', { errorMessagePath: 'data.error.detail' })
+      ).rejects.toMatchObject({
+        message: 'Per-request override message',
+      });
+
+      instanceMock.restore();
+    });
+
+    test('handles nested dot notation paths correctly', async () => {
+      const customClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: 'data.errors.0.message',
+      });
+
+      const customMock = new MockPlugin(customClient.client);
+      const errorResponse = {
+        errors: [{ message: 'First error message' }, { message: 'Second error message' }],
+      };
+      customMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      await expect(customClient.get('/error')).rejects.toMatchObject({
+        message: 'First error message',
+      });
+
+      customMock.restore();
+    });
+
+    test('handles function extractor returning undefined gracefully', async () => {
+      const customClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: () => undefined, // Function returns undefined
+      });
+
+      const customMock = new MockPlugin(customClient.client);
+      const errorResponse = { message: 'This should be ignored' };
+      customMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      await expect(customClient.get('/error')).rejects.toMatchObject({
+        message: 'ok', // Should fall back to statusText
+      });
+
+      customMock.restore();
+    });
+
+    test('handles function extractor with complex response structure', async () => {
+      const customClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: response => {
+          // Handle multiple possible error formats
+          if (response.data?.error?.message) {
+            return response.data.error.message;
+          }
+          if (response.data?.errors?.length > 0) {
+            return response.data.errors.map((e: any) => e.message).join('; ');
+          }
+          if (response.data?.message) {
+            return response.data.message;
+          }
+          return undefined;
+        },
+      });
+
+      const customMock = new MockPlugin(customClient.client);
+      const errorResponse = {
+        errors: [{ message: 'Error 1' }, { message: 'Error 2' }],
+      };
+      customMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      await expect(customClient.get('/error')).rejects.toMatchObject({
+        message: 'Error 1; Error 2',
+      });
+
+      customMock.restore();
+    });
+
+    test('handles invalid dot notation path gracefully', async () => {
+      const customClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        errorMessagePath: 'data.nonexistent.deep.path',
+      });
+
+      const customMock = new MockPlugin(customClient.client);
+      const errorResponse = { message: 'This should be ignored' };
+      customMock.onGet('/error').reply(400, errorResponse);
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      await expect(customClient.get('/error')).rejects.toMatchObject({
+        message: 'ok', // Should fall back to statusText
+      });
+
+      customMock.restore();
+    });
+  });
+
   describe('Retry Configuration', () => {
     test('applies retry config at instance level', () => {
       const retryClient = new HttpClient({
@@ -1898,7 +2102,6 @@ describe('HttpClient', () => {
       if (processedError instanceof HttpError) {
         expect(processedError.status).toBe(404);
       }
-      expect(processedError.message).toContain('404');
       expect(processedError.message).toContain('Resource not found');
     });
 
@@ -2074,7 +2277,7 @@ describe('HttpClient', () => {
       await expect(customClient.get('/error')).rejects.toThrow();
       expect(customClient.errorLog).toHaveLength(1);
       expect(customClient.errorLog[0].type).toBe('HttpError');
-      expect(customClient.errorLog[0].message).toContain('500');
+      expect(customClient.errorLog[0].message).toContain('ok');
       customMock.restore();
     });
   });

@@ -142,3 +142,132 @@ export function resolveSchemaRef(
 
   return current as OpenAPIV3.SchemaObject;
 }
+
+/**
+ * Attempt to detect the error message path from OpenAPI error response schemas
+ * Analyzes 4xx and 5xx response schemas to find common error message fields
+ *
+ * @param spec - Parsed OpenAPI specification
+ * @returns Detected error message path or undefined
+ */
+export function detectErrorMessagePath(spec: OpenAPIV3.Document): string | undefined {
+  const errorPaths = new Map<string, number>(); // path -> count
+  const operations = extractOperations(spec);
+
+  for (const { operation } of operations) {
+    if (!operation.responses) continue;
+
+    // Check error response codes (4xx, 5xx)
+    for (const [statusCode, response] of Object.entries(operation.responses)) {
+      const status = parseInt(statusCode);
+      if (status < 400) continue;
+
+      // Analyze the response schema
+      const schema = extractResponseSchema(response);
+      if (schema) {
+        const paths = findMessagePaths(schema);
+        paths.forEach(path => {
+          errorPaths.set(path, (errorPaths.get(path) || 0) + 1);
+        });
+      }
+    }
+  }
+
+  // Return most common path
+  if (errorPaths.size === 0) return undefined;
+
+  let mostCommon = '';
+  let maxCount = 0;
+  for (const [path, count] of errorPaths.entries()) {
+    if (count > maxCount) {
+      maxCount = count;
+      mostCommon = path;
+    }
+  }
+
+  return mostCommon || undefined;
+}
+
+/**
+ * Recursively find paths to fields named: message, error, detail, etc.
+ * Returns array of paths like ['data.message', 'data.error.message']
+ */
+function findMessagePaths(schema: any, prefix = 'data'): string[] {
+  const paths: string[] = [];
+
+  if (!schema || typeof schema !== 'object') {
+    return paths;
+  }
+
+  // Check for direct message fields in properties
+  if (schema.properties) {
+    const messageFields = ['message', 'error', 'detail', 'description', 'msg'];
+    for (const field of messageFields) {
+      if (schema.properties[field]) {
+        paths.push(`${prefix}.${field}`);
+      }
+    }
+
+    // Check for nested objects
+    for (const [key, value] of Object.entries(schema.properties)) {
+      if (value && typeof value === 'object') {
+        const nestedPaths = findMessagePaths(value, `${prefix}.${key}`);
+        paths.push(...nestedPaths);
+      }
+    }
+  }
+
+  // Check for array items
+  if (schema.items) {
+    const itemPaths = findMessagePaths(schema.items, `${prefix}.0`);
+    paths.push(...itemPaths);
+  }
+
+  // Check for allOf, oneOf, anyOf
+  const unionTypes = ['allOf', 'oneOf', 'anyOf'];
+  for (const unionType of unionTypes) {
+    if (schema[unionType] && Array.isArray(schema[unionType])) {
+      for (const item of schema[unionType]) {
+        const itemPaths = findMessagePaths(item, prefix);
+        paths.push(...itemPaths);
+      }
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Extract schema from response object (handle $ref, content types, etc.)
+ */
+function extractResponseSchema(response: any): any {
+  if (!response) return null;
+
+  // Handle $ref
+  if (response.$ref) {
+    // For now, we'll skip $ref resolution as it requires full spec traversal
+    return null;
+  }
+
+  // Handle content types
+  if (response.content) {
+    // Look for JSON content first
+    const jsonContent = response.content['application/json'];
+    if (jsonContent?.schema) {
+      return jsonContent.schema;
+    }
+
+    // Fall back to any content type
+    const firstContent = Object.values(response.content)[0] as any;
+    if (firstContent?.schema) {
+      return firstContent.schema;
+    }
+  }
+
+  // Direct schema
+  if (response.schema) {
+    return response.schema;
+  }
+
+  return null;
+}

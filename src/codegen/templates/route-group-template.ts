@@ -49,7 +49,7 @@ function generateRouteGroupClass(group: RouteGroup, options: RouteGroupGeneratio
   const typeAliases = typesFile ? generateTypeAliases(group) : '';
   const classDoc = generateRouteGroupJSDoc(group);
   const constructor = generateRouteGroupConstructor(group.className);
-  const methods = generateRouteGroupMethods(group.operations, typesFile);
+  const methods = generateRouteGroupMethods(group.operations);
   const classBody = generateRouteGroupClassBody(group.className, constructor, methods);
 
   return `${imports}
@@ -163,17 +163,17 @@ function generateRouteGroupConstructor(className: string): string {
 /**
  * Generate methods for all operations in a route group
  */
-function generateRouteGroupMethods(operations: ParsedOperation[], typesFile?: string): string {
-  return operations.map(operation => generateMethod(operation, typesFile)).join('\n\n');
+function generateRouteGroupMethods(operations: ParsedOperation[]): string {
+  return operations.map(operation => generateMethod(operation)).join('\n\n');
 }
 
 /**
  * Generate a single method for an operation
  */
-function generateMethod(operation: ParsedOperation, typesFile?: string): string {
+function generateMethod(operation: ParsedOperation): string {
   const methodDoc = generateMethodJSDoc(operation);
   const methodSignature = generateMethodSignature(operation);
-  const methodBody = generateMethodBody(operation, typesFile);
+  const methodBody = generateMethodBody(operation);
 
   return `${methodDoc}
   ${methodSignature} {
@@ -254,7 +254,7 @@ function generateMethodSignature(operation: ParsedOperation): string {
 /**
  * Generate method body
  */
-function generateMethodBody(operation: ParsedOperation, typesFile?: string): string {
+function generateMethodBody(operation: ParsedOperation): string {
   const { method, path, pathParams, queryParams, requestBody } = operation;
 
   // Build the URL with path parameters
@@ -293,19 +293,10 @@ function generateMethodBody(operation: ParsedOperation, typesFile?: string): str
     ? `this.client.${methodLower}<${returnType}>(fullUrl${optionsString})`
     : `this.client.${methodLower}<${returnType}>(\`${url}\`${optionsString})`;
 
-  // Add type imports if available
-  let typeCode = '';
-  if (typesFile) {
-    typeCode = `
-    // Types are available from openapi-typescript`;
-  }
-
-  return `    try {${typeCode}${queryString}
-      const { data } = await ${requestCall};
-      return data;
-    } catch (error) {
-      throw error;
-    }`;
+  // Build the method body
+  return `${queryString}
+    const { data } = await ${requestCall};
+    return data;`;
 }
 
 /**

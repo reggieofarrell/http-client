@@ -6,7 +6,7 @@
 
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { generateClient } from '../generator';
+import { generateClient } from '../../src/codegen/generator';
 import * as sampleOpenApiSpec from './sample-openapi.json';
 
 // Mock openapi-typescript
@@ -145,11 +145,11 @@ describe('Code Generator', () => {
       const usersContent = await fs.readFile(usersRouteFile, 'utf-8');
 
       expect(usersContent).toContain('export class UsersRouteGroup');
-      expect(usersContent).toContain('async listusers()');
-      expect(usersContent).toContain('async createuser(');
-      expect(usersContent).toContain('async getuser(');
-      expect(usersContent).toContain('async updateuser(');
-      expect(usersContent).toContain('async deleteuser(');
+      expect(usersContent).toContain('async listUsers()');
+      expect(usersContent).toContain('async createUser(');
+      expect(usersContent).toContain('async getUser(');
+      expect(usersContent).toContain('async updateUser(');
+      expect(usersContent).toContain('async deleteUser(');
     });
 
     it('should handle path-based grouping when no tags are present', async () => {
@@ -264,6 +264,183 @@ describe('Code Generator', () => {
           clientName: 'TestClient',
         })
       ).rejects.toThrow();
+    });
+  });
+
+  describe('Error Message Path Generation', () => {
+    it('should generate client with manual error message path', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'TestClient',
+        errorMessagePath: 'data.error.detail',
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      expect(clientContent).toContain("errorMessagePath: 'data.error.detail'");
+      expect(clientContent).toContain(
+        "super({ baseURL: 'https://api.example.com', errorMessagePath: 'data.error.detail', ...config });"
+      );
+    });
+
+    it('should auto-detect error message path from OpenAPI spec', async () => {
+      const specWithErrorSchemas = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        servers: [{ url: 'https://api.example.com' }],
+        paths: {
+          '/test': {
+            get: {
+              responses: {
+                '200': { description: 'Success' },
+                '400': {
+                  description: 'Bad Request',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          error: {
+                            type: 'object',
+                            properties: {
+                              message: { type: 'string' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                '500': {
+                  description: 'Server Error',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          error: {
+                            type: 'object',
+                            properties: {
+                              message: { type: 'string' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      await generateClient({
+        openApiSpec: specWithErrorSchemas,
+        outputDir: testOutputDir,
+        clientName: 'TestClient',
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Should contain auto-detected path
+      expect(clientContent).toContain('errorMessagePath:');
+    });
+
+    it('should not auto-detect when autoDetectErrorPath is false', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'TestClient',
+        autoDetectErrorPath: false,
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Should not contain errorMessagePath in constructor
+      expect(clientContent).not.toContain('errorMessagePath:');
+    });
+
+    it('should handle spec without error responses gracefully', async () => {
+      const specWithoutErrors = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        servers: [{ url: 'https://api.example.com' }],
+        paths: {
+          '/test': {
+            get: {
+              responses: {
+                '200': { description: 'Success' },
+              },
+            },
+          },
+        },
+      };
+
+      await generateClient({
+        openApiSpec: specWithoutErrors,
+        outputDir: testOutputDir,
+        clientName: 'TestClient',
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Should not contain errorMessagePath when no error responses found
+      expect(clientContent).not.toContain('errorMessagePath:');
+    });
+
+    it('should prioritize manual errorMessagePath over auto-detection', async () => {
+      const specWithErrorSchemas = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        servers: [{ url: 'https://api.example.com' }],
+        paths: {
+          '/test': {
+            get: {
+              responses: {
+                '200': { description: 'Success' },
+                '400': {
+                  description: 'Bad Request',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          error: {
+                            type: 'object',
+                            properties: {
+                              message: { type: 'string' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      await generateClient({
+        openApiSpec: specWithErrorSchemas,
+        outputDir: testOutputDir,
+        clientName: 'TestClient',
+        errorMessagePath: 'data.custom.error',
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Should use manual path, not auto-detected
+      expect(clientContent).toContain("errorMessagePath: 'data.custom.error'");
+      expect(clientContent).not.toContain("errorMessagePath: 'data.error.message'");
     });
   });
 });

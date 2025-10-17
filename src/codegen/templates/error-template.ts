@@ -1,239 +1,164 @@
 /**
  * Error Class Template Generator
  *
- * This module generates custom error classes for API-specific error responses
- * when they differ from the standard HttpClient error types.
+ * Generates custom error classes for API-specific error responses
+ * that have additional fields beyond standard HttpError properties.
  */
 
 import { OpenAPIV3 } from 'openapi-types';
 
 /**
- * Configuration for error generation
+ * Represents a custom error schema found in the OpenAPI spec
  */
-interface ErrorGenerationOptions {
-  /** Whether to generate custom error classes */
-  generateCustomErrors: boolean;
-  /** Base error class to extend */
-  baseErrorClass: string;
+interface CustomErrorSchema {
+  /** HTTP status code pattern (e.g., '404', '4XX', '5XX') */
+  statusCode: string;
+  /** The error schema */
+  schema: OpenAPIV3.SchemaObject;
+  /** Additional properties beyond standard error fields */
+  customProperties: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    description?: string;
+  }>;
 }
 
 /**
- * Generate custom error classes from OpenAPI error responses
- *
- * @param spec - OpenAPI specification
- * @param options - Error generation options
- * @returns Generated error class code
+ * Check if an error schema has custom properties beyond standard HTTP error fields
  */
-export function generateErrorClasses(
-  spec: OpenAPIV3.Document,
-  options: ErrorGenerationOptions
-): string {
-  const { generateCustomErrors, baseErrorClass } = options;
-
-  if (!generateCustomErrors) {
-    return generateBasicErrorExport();
+function hasCustomErrorProperties(schema: OpenAPIV3.SchemaObject): boolean {
+  if (schema.type !== 'object' || !schema.properties) {
+    return false;
   }
 
-  // Extract error responses from all operations
-  const errorSchemas = extractErrorSchemas(spec);
+  const standardFields = new Set(['message', 'status', 'statusText', 'error']);
+  const schemaProps = Object.keys(schema.properties);
 
-  if (Object.keys(errorSchemas).length === 0) {
-    return generateBasicErrorExport();
-  }
-
-  return generateCustomErrorClasses(errorSchemas, baseErrorClass);
+  // Check if there are any properties beyond standard ones
+  return schemaProps.some(prop => !standardFields.has(prop));
 }
 
 /**
- * Generate basic error export (no custom errors)
+ * Extract custom error schemas from OpenAPI spec
  */
-function generateBasicErrorExport(): string {
-  return `/**
- * API Error Classes
- *
- * This file exports error classes for the API.
- * Uses standard HttpClient error types.
- */
+export function extractCustomErrorSchemas(spec: OpenAPIV3.Document): CustomErrorSchema[] {
+  const customErrors: Map<string, CustomErrorSchema> = new Map();
 
-export {
-  HttpClientError,
-  NetworkError,
-  TimeoutError,
-  HttpError,
-  SerializationError
-} from '@reggieofarrell/http-client';`;
-}
+  // Iterate through all paths and operations
+  Object.entries(spec.paths || {}).forEach(([_path, pathItem]) => {
+    if (!pathItem) return;
 
-/**
- * Extract error schemas from OpenAPI specification
- */
-function extractErrorSchemas(spec: OpenAPIV3.Document): Record<string, OpenAPIV3.SchemaObject> {
-  const errorSchemas: Record<string, OpenAPIV3.SchemaObject> = {};
+    const operations = [
+      pathItem.get,
+      pathItem.post,
+      pathItem.put,
+      pathItem.patch,
+      pathItem.delete,
+      pathItem.options,
+      pathItem.head,
+    ].filter(Boolean) as OpenAPIV3.OperationObject[];
 
-  // Extract from all operations
-  for (const [, pathItem] of Object.entries(spec.paths)) {
-    if (!pathItem) continue;
+    operations.forEach(operation => {
+      if (!operation.responses) return;
 
-    const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const;
+      // Check error responses (4xx, 5xx)
+      Object.entries(operation.responses).forEach(([statusCode, response]) => {
+        if (!statusCode.match(/^[45]\d{2}$/)) return;
+        if ('$ref' in response) return;
 
-    for (const method of methods) {
-      const operation = pathItem[method];
-      if (!operation?.responses) continue;
+        const content = response.content?.['application/json'];
+        if (!content || !content.schema) return;
 
-      // Look for error responses (4xx, 5xx)
-      for (const [statusCode, response] of Object.entries(operation.responses)) {
-        if (statusCode.startsWith('4') || statusCode.startsWith('5')) {
-          if ('$ref' in response) continue;
+        let schema: OpenAPIV3.SchemaObject;
 
-          const content = response.content;
-          if (!content) continue;
-
-          for (const [, mediaType] of Object.entries(content)) {
-            if (mediaType.schema && !('$ref' in mediaType.schema)) {
-              const errorName = `ApiError${statusCode}`;
-              errorSchemas[errorName] = mediaType.schema;
-            }
-          }
+        // Resolve $ref if present
+        if ('$ref' in content.schema) {
+          const refPath = content.schema.$ref.replace('#/components/schemas/', '');
+          schema = spec.components?.schemas?.[refPath] as OpenAPIV3.SchemaObject;
+          if (!schema) return;
+        } else {
+          schema = content.schema as OpenAPIV3.SchemaObject;
         }
-      }
-    }
-  }
 
-  return errorSchemas;
+        // Check if this error has custom properties
+        if (!hasCustomErrorProperties(schema)) return;
+
+        // Extract custom properties
+        const customProperties = extractCustomProperties(schema);
+        if (customProperties.length === 0) return;
+
+        // Use schema name as key or generate one
+        const errorKey =
+          '$ref' in content.schema
+            ? content.schema.$ref.replace('#/components/schemas/', '')
+            : `Error${statusCode}`;
+
+        if (!customErrors.has(errorKey)) {
+          customErrors.set(errorKey, {
+            statusCode,
+            schema,
+            customProperties,
+          });
+        }
+      });
+    });
+  });
+
+  return Array.from(customErrors.values());
 }
 
 /**
- * Generate custom error classes
+ * Extract custom properties from error schema
  */
-function generateCustomErrorClasses(
-  errorSchemas: Record<string, OpenAPIV3.SchemaObject>,
-  baseErrorClass: string
-): string {
-  const imports = generateErrorImports(baseErrorClass);
-  const errorClasses = Object.entries(errorSchemas)
-    .map(([errorName, schema]) => generateErrorClass(errorName, schema, baseErrorClass))
-    .join('\n\n');
+function extractCustomProperties(schema: OpenAPIV3.SchemaObject): Array<{
+  name: string;
+  type: string;
+  required: boolean;
+  description?: string;
+}> {
+  if (!schema.properties) return [];
 
-  return `${imports}
+  const standardFields = new Set(['message', 'status', 'statusText', 'error']);
+  const required = new Set(schema.required || []);
+  const customProps: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    description?: string;
+  }> = [];
 
-${errorClasses}`;
-}
+  Object.entries(schema.properties).forEach(([name, prop]) => {
+    if (standardFields.has(name)) return;
+    if ('$ref' in prop) return; // Skip refs for now
 
-/**
- * Generate error imports
- */
-function generateErrorImports(baseErrorClass: string): string {
-  return `/**
- * API Error Classes
- *
- * This file exports custom error classes for API-specific error responses.
- */
+    const propSchema = prop as OpenAPIV3.SchemaObject;
+    const type = mapOpenApiTypeToTs(propSchema);
 
-import { ${baseErrorClass} } from '@reggieofarrell/http-client';
-import { z } from 'zod';`;
-}
-
-/**
- * Generate a single error class
- */
-function generateErrorClass(
-  errorName: string,
-  schema: OpenAPIV3.SchemaObject,
-  baseErrorClass: string
-): string {
-  const className = errorName.replace('ApiError', '');
-  const properties = extractErrorProperties(schema);
-  const constructor = generateErrorConstructor(className, properties);
-  const methods = generateErrorMethods(className, properties);
-
-  return `/**
- * ${className} Error
- *
- * Represents a ${className} error response from the API.
- */
-export class ${className}Error extends ${baseErrorClass} {
-${properties}
-
-${constructor}
-
-${methods}
-}`;
-}
-
-/**
- * Extract properties from error schema
- */
-function extractErrorProperties(schema: OpenAPIV3.SchemaObject): string {
-  if (!schema.properties) {
-    return '  // No additional properties';
-  }
-
-  const properties = Object.entries(schema.properties)
-    .map(([name, propSchema]) => {
-      const type = getTypeScriptType(propSchema as OpenAPIV3.SchemaObject);
-      const description =
-        ('description' in propSchema && propSchema.description) || 'Error property';
-      return `  /** ${name} - ${description} */\n  ${name}: ${type};`;
-    })
-    .join('\n\n');
-
-  return properties;
-}
-
-/**
- * Generate error constructor
- */
-function generateErrorConstructor(className: string, _properties: string): string {
-  return `  /**
-   * Create a new ${className}Error
-   *
-   * @param message - Error message
-   * @param statusCode - HTTP status code
-   * @param data - Error response data
-   */
-  constructor(
-    message: string,
-    statusCode: number,
-    data?: any
-  ) {
-    super(message, statusCode);
-
-    if (data) {
-      Object.assign(this, data);
-    }
-  }`;
-}
-
-/**
- * Generate error methods
- */
-function generateErrorMethods(className: string, _properties: string): string {
-  return `  /**
-   * Get error details as JSON
-   * @returns Error details
-   */
-  toJSON() {
-    return {
-      name: '${className}Error',
-      message: this.message,
-      statusCode: this.statusCode,
-      ...this
+    const customProp: { name: string; type: string; required: boolean; description?: string } = {
+      name,
+      type,
+      required: required.has(name),
     };
-  }
 
-  /**
-   * Get error summary
-   * @returns Error summary
-   */
-  getSummary() {
-    return \`\${this.statusCode}: \${this.message}\`;
-  }`;
+    if (propSchema.description) {
+      customProp.description = propSchema.description;
+    }
+
+    customProps.push(customProp);
+  });
+
+  return customProps;
 }
 
 /**
- * Get TypeScript type from OpenAPI schema
+ * Map OpenAPI type to TypeScript type
  */
-function getTypeScriptType(schema: OpenAPIV3.SchemaObject): string {
+function mapOpenApiTypeToTs(schema: OpenAPIV3.SchemaObject): string {
+  if (schema.enum) {
+    return schema.enum.map(v => `'${v}'`).join(' | ');
+  }
+
   switch (schema.type) {
     case 'string':
       return 'string';
@@ -243,10 +168,76 @@ function getTypeScriptType(schema: OpenAPIV3.SchemaObject): string {
     case 'boolean':
       return 'boolean';
     case 'array':
+      if (schema.items && !('$ref' in schema.items)) {
+        const itemType = mapOpenApiTypeToTs(schema.items as OpenAPIV3.SchemaObject);
+        return `${itemType}[]`;
+      }
       return 'any[]';
     case 'object':
       return 'Record<string, any>';
     default:
       return 'any';
   }
+}
+
+/**
+ * Generate TypeScript interface for error response
+ */
+export function generateErrorTypeInterface(
+  errorSchema: CustomErrorSchema,
+  errorName: string
+): string {
+  const { customProperties } = errorSchema;
+
+  const propertiesCode = customProperties
+    .map(prop => {
+      const optional = prop.required ? '' : '?';
+      const comment = prop.description ? `\n  /** ${prop.description} */` : '';
+      return `${comment}\n  ${prop.name}${optional}: ${prop.type};`;
+    })
+    .join('\n');
+
+  return `/**
+ * ${errorName} - Error response type from API
+ *
+ * Type definition for error responses with custom fields
+ */
+export interface ${errorName} {${propertiesCode}
+}`;
+}
+
+/**
+ * Generate error types file
+ */
+export function generateErrorTypes(customErrors: CustomErrorSchema[]): string | null {
+  if (customErrors.length === 0) {
+    return null;
+  }
+
+  const errorTypes = customErrors
+    .map((errorSchema, index) => {
+      const errorName = `ApiErrorResponse${index === 0 ? '' : index + 1}`;
+      return generateErrorTypeInterface(errorSchema, errorName);
+    })
+    .join('\n\n');
+
+  return `/**
+ * Generated Error Response Types
+ *
+ * These types represent the structure of error responses from the API.
+ * Use them to type-cast error.response.data for type-safe error handling.
+ *
+ * @example
+ * try {
+ *   await client.users.getUser({ id: '123' });
+ * } catch (error) {
+ *   if (error instanceof HttpError) {
+ *     const errorData = error.response.data as ApiErrorResponse;
+ *     console.error('Error code:', errorData.code);
+ *   }
+ * }
+ */
+
+${errorTypes}
+`;
 }

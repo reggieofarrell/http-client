@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [Unreleased]
+
+### Features
+
+* add customizable error message extraction with support for dot notation paths and function extractors
+* add per-request errorMessagePath override capability
+* add fallback to statusText when custom path doesn't contain a message
+* add error message path auto-detection to code generator
+* add manual errorMessagePath configuration option to generateClient()
+* add autoDetectErrorPath option to disable auto-detection
+* generate clients with configured error message paths in constructor
+
 ## [2.0.0](https://github.com/reggieofarrell/http-client/compare/v1.2.1...v2.0.0) (2025-10-17)
 
 

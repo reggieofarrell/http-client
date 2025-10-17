@@ -29,6 +29,13 @@ export enum RequestType {
 type BackoffOptions = 'exponential' | 'linear' | 'none';
 type JitterOptions = 'none' | 'full' | 'equal' | 'decorrelated';
 
+/**
+ * Type for error message extraction from HTTP error responses
+ * - String: dot notation path like "data.error.message"
+ * - Function: custom extraction logic (errorResponse) => string | undefined
+ */
+type ErrorMessageExtractor = string | ((errorResponse: any) => string | undefined);
+
 export interface HttpClientRetryConfig {
   /**
    * Number of times to retry failed requests
@@ -96,6 +103,12 @@ export interface HttpClientRequestConfig extends XiorRequestConfig {
    * Per-request idempotency configuration
    */
   idempotencyConfig?: IdempotencyConfig;
+  /**
+   * Per-request error message path override
+   * String path: dot notation like "data.error.message"
+   * Function: (errorResponse) => errorResponse.data?.error
+   */
+  errorMessagePath?: ErrorMessageExtractor;
 }
 
 export interface HttpClientResponse<T> {
@@ -135,6 +148,13 @@ export interface HttpClientOptions {
    * The default configuration is `{ enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }`.
    */
   idempotencyConfig?: IdempotencyConfig;
+  /**
+   * Path or function to extract error message from response.
+   * String path: dot notation like "data.error.message"
+   * Function: (errorResponse) => errorResponse.data?.error
+   * @default "data.message"
+   */
+  errorMessagePath?: ErrorMessageExtractor;
 }
 
 export class HttpClient {
@@ -146,6 +166,7 @@ export class HttpClient {
   name: HttpClientOptions['name'];
   retryConfig: HttpClientRetryConfig;
   idempotencyConfig: IdempotencyConfig;
+  errorMessagePath: ErrorMessageExtractor;
   private requestKeyCache: Map<string, string>;
   private idempotencyCounter: number;
 
@@ -215,6 +236,7 @@ export class HttpClient {
     this.name = config.name;
     this.retryConfig = config.retryConfig!;
     this.idempotencyConfig = idempotencyConfig;
+    this.errorMessagePath = config.errorMessagePath || 'data.message';
     this.requestKeyCache = new Map();
     this.idempotencyCounter = 0;
 
@@ -318,6 +340,33 @@ export class HttpClient {
     }
 
     return null;
+  }
+
+  /**
+   * Extracts error message from response data using configured path or function
+   * @param errorResponse - The error response object
+   * @param extractor - String path or function to extract message
+   * @returns Extracted message or undefined
+   */
+  private extractErrorMessage(
+    errorResponse: any,
+    extractor: ErrorMessageExtractor
+  ): string | undefined {
+    if (typeof extractor === 'function') {
+      // Function-based extraction
+      return extractor(errorResponse);
+    }
+
+    // String path extraction (dot notation)
+    const parts = extractor.split('.');
+    let current = errorResponse;
+
+    for (const part of parts) {
+      if (current == null) return undefined;
+      current = current[part];
+    }
+
+    return typeof current === 'string' ? current : undefined;
   }
 
   private generateRequestSignature(method: RequestType, url: string, data?: any): string {
@@ -649,9 +698,11 @@ export class HttpClient {
       const response = buildHttpErrorResponse(error.response);
       const category = classifyHttpError(error.response.status);
       const statusText = error.response.statusText || '';
-      const message = error.response.data?.message
-        ? `[${this.name}] ${reqType} ${url} : [${error.response.status}] ${error.response.data.message}`
-        : `[${this.name}] ${reqType} ${url} : [${error.response.status}] ${statusText}`;
+
+      // Use per-request errorMessagePath if provided, otherwise use instance default
+      const extractor = error.config?.errorMessagePath || this.errorMessagePath;
+      const extractedMessage = this.extractErrorMessage(error.response, extractor);
+      const message = extractedMessage || statusText;
 
       // Check if enableRetry function overrides the default retriability
       let isRetriable: boolean | undefined;
