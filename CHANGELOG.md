@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.0](https://github.com/reggieofarrell/http-client/compare/v1.2.1...v2.0.0) (2025-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* introduce stable error types and enhance error handling in HttpClient (#4)
+
+### Features
+
+* add HEAD and OPTIONS request methods to HttpClient and make request method public ([#7](https://github.com/reggieofarrell/http-client/issues/7)) ([4b80c41](https://github.com/reggieofarrell/http-client/commit/4b80c41ad1d174e90747ccf2dacbec5144ec4b10))
+* add/change middleware hooks for request and response modification in HttpClient ([#5](https://github.com/reggieofarrell/http-client/issues/5)) ([1e715eb](https://github.com/reggieofarrell/http-client/commit/1e715ebce4dde9118470ee006158652c372dc510))
+* introduce stable error types and enhance error handling in HttpClient ([#4](https://github.com/reggieofarrell/http-client/issues/4)) ([697295e](https://github.com/reggieofarrell/http-client/commit/697295e434a7e92a571f8b9c3f3855dd7efb2bf4))
+* refactor error handling in HttpClient with processError method ([#6](https://github.com/reggieofarrell/http-client/issues/6)) ([48fd0e7](https://github.com/reggieofarrell/http-client/commit/48fd0e716d2575051014b40c46cf2a75873224ce))
+
 ## [1.2.1](https://github.com/reggieofarrell/http-client/compare/v1.2.0...v1.2.1) (2025-10-15)
 
 
