@@ -1,0 +1,50 @@
+openapi: 3.0.0
+info:
+  title: Multi-File API (YAML)
+  version: 1.0.0
+  description: API spec demonstrating multi-file $ref support with YAML
+servers:
+  - url: https://api.example.com
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      summary: List all users
+      tags:
+        - users
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: './schemas/user.json#/User'
+    post:
+      operationId: createUser
+      summary: Create a new user
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/user.json#/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/user.json#/User'
+components:
+  schemas:
+    User:
+      $ref: './schemas/user.json#/User'
+    CreateUserRequest:
+      $ref: './schemas/user.json#/CreateUserRequest'
+    Error:
+      $ref: './schemas/user.json#/Error'
+

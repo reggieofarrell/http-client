@@ -1,0 +1,50 @@
+{
+  "User": {
+    "type": "object",
+    "required": ["id", "name", "email"],
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Unique user identifier"
+      },
+      "name": {
+        "type": "string",
+        "description": "User's full name"
+      },
+      "email": {
+        "type": "string",
+        "format": "email",
+        "description": "User's email address"
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the user was created"
+      }
+    }
+  },
+  "CreateUserRequest": {
+    "type": "object",
+    "required": ["name", "email"],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string",
+        "format": "email"
+      }
+    }
+  },
+  "Error": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string"
+      },
+      "code": {
+        "type": "string"
+      }
+    }
+  }
+}

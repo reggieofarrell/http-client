@@ -1,0 +1,21 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Multi-File API",
+    "version": "1.0.0",
+    "description": "API spec demonstrating multi-file $ref support"
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com"
+    }
+  ],
+  "paths": {
+    "$ref": "./paths/users.json"
+  },
+  "components": {
+    "schemas": {
+      "$ref": "./schemas/user.json"
+    }
+  }
+}
