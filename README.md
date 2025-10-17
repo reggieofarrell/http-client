@@ -870,7 +870,9 @@ const { data } = await client.post('/users', { name: 'John' });
 
 #### Error Handling
 
-The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method:
+The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method, which has been refactored to provide better flexibility for child classes.
+
+##### Basic Error Handling Override
 
 ```typescript
 class CustomClient extends HttpClient {
@@ -891,6 +893,49 @@ class CustomClient extends HttpClient {
   }
 }
 ```
+
+##### Advanced Error Handling with processError()
+
+For more control over error handling, you can use the `processError()` method to get the processed error object before throwing it:
+
+```typescript
+class CustomClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    // Get the processed error object
+    const processedError = this.processError(error, reqType, url);
+
+    // Add custom logic (logging, metrics, etc.)
+    this.logErrorMetrics(processedError);
+
+    // Option 1: Throw the processed error as-is
+    throw processedError;
+
+    // Option 2: Modify the error before throwing
+    // processedError.message = `[Custom] ${processedError.message}`;
+    // throw processedError;
+
+    // Option 3: Add custom properties
+    // (processedError as any).customProperty = 'some value';
+    // throw processedError;
+  }
+}
+```
+
+##### Error Processing Method
+
+The `processError()` method handles all the core error processing logic and returns a fully constructed error object. This method:
+
+- Builds request metadata for all error types
+- Handles HTTP response errors (status codes outside 2xx)
+- Handles network, timeout, and serialization errors
+- Applies retry configuration logic
+- Returns the appropriate error type (`HttpError`, `NetworkError`, `TimeoutError`, or `SerializationError`)
+
+This separation allows child classes to:
+1. Use the default error handling: `throw this.processError(error, reqType, url);`
+2. Customize errors before throwing: Modify the processed error object
+3. Add side effects: Logging, metrics, custom error tracking
+4. Completely override: Build their own error handling logic
 
 ### Extending the HttpClient
 
@@ -925,6 +970,157 @@ class MyApiClient extends HttpClient {
 // Usage
 const apiClient = new MyApiClient();
 const users = await apiClient.getUsers();
+```
+
+#### Advanced Error Handling Examples
+
+Here are comprehensive examples of different error handling patterns:
+
+##### 1. Custom Error Logging and Metrics
+
+```typescript
+class AnalyticsClient extends HttpClient {
+  private errorMetrics: any[] = [];
+
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    const processedError = this.processError(error, reqType, url);
+
+    // Log to analytics service
+    this.errorMetrics.push({
+      timestamp: new Date().toISOString(),
+      method: reqType,
+      url,
+      errorType: processedError.constructor.name,
+      message: processedError.message,
+      isRetriable: processedError.isRetriable
+    });
+
+    // Send to external monitoring
+    this.sendToMonitoring(processedError);
+
+    throw processedError;
+  }
+
+  private sendToMonitoring(error: any) {
+    // Send to your monitoring service (DataDog, New Relic, etc.)
+    console.log('Sending error to monitoring:', error.message);
+  }
+}
+```
+
+##### 2. Custom Error Messages and Context
+
+```typescript
+class UserFriendlyClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    const processedError = this.processError(error, reqType, url);
+
+    // Add user-friendly context
+    if (processedError instanceof HttpError) {
+      switch (processedError.status) {
+        case 401:
+          processedError.message = 'Please log in to continue';
+          break;
+        case 403:
+          processedError.message = 'You do not have permission to access this resource';
+          break;
+        case 404:
+          processedError.message = 'The requested resource was not found';
+          break;
+        case 429:
+          processedError.message = 'Too many requests. Please try again later';
+          break;
+        default:
+          processedError.message = `Request failed: ${processedError.message}`;
+      }
+    }
+
+    throw processedError;
+  }
+}
+```
+
+##### 3. Error Recovery and Fallback
+
+```typescript
+class ResilientClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    const processedError = this.processError(error, reqType, url);
+
+    // Attempt recovery for specific errors
+    if (processedError instanceof NetworkError) {
+      // Try fallback endpoint
+      if (url.startsWith('/api/')) {
+        const fallbackUrl = url.replace('/api/', '/api-fallback/');
+        console.log(`Attempting fallback for ${url} -> ${fallbackUrl}`);
+        // You could implement retry logic here
+      }
+    }
+
+    throw processedError;
+  }
+}
+```
+
+##### 4. Error Classification and Routing
+
+```typescript
+class SmartClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    const processedError = this.processError(error, reqType, url);
+
+    // Route different error types to different handlers
+    if (processedError instanceof HttpError) {
+      this.handleHttpError(processedError, reqType, url);
+    } else if (processedError instanceof NetworkError) {
+      this.handleNetworkError(processedError, reqType, url);
+    } else if (processedError instanceof TimeoutError) {
+      this.handleTimeoutError(processedError, reqType, url);
+    }
+
+    throw processedError;
+  }
+
+  private handleHttpError(error: HttpError, reqType: RequestType, url: string) {
+    // Specific HTTP error handling
+    if (error.status === 429) {
+      // Implement exponential backoff
+      console.log('Rate limited, implementing backoff strategy');
+    }
+  }
+
+  private handleNetworkError(error: NetworkError, reqType: RequestType, url: string) {
+    // Network error specific handling
+    console.log('Network issue detected, checking connectivity');
+  }
+
+  private handleTimeoutError(error: TimeoutError, reqType: RequestType, url: string) {
+    // Timeout specific handling
+    console.log('Request timed out, consider increasing timeout');
+  }
+}
+```
+
+##### 5. Complete Custom Error Handling
+
+```typescript
+class CustomErrorClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    // Completely custom error handling without using processError
+    if (error.response) {
+      // Custom HTTP error handling
+      const customError = new Error(`Custom HTTP Error: ${error.response.status}`);
+      (customError as any).status = error.response.status;
+      (customError as any).data = error.response.data;
+      throw customError;
+    } else {
+      // Custom network error handling
+      const customError = new Error(`Custom Network Error: ${error.message}`);
+      (customError as any).originalError = error;
+      throw customError;
+    }
+  }
+}
 ```
 
 ### Error Handling
