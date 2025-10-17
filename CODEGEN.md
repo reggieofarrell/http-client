@@ -1,5 +1,7 @@
 # OpenAPI SDK Code Generator
 
+> **⚠️ Beta Feature**: The code generator is currently in beta. While it's fully functional, the API may change in future versions based on user feedback.
+
 The OpenAPI SDK Code Generator is a powerful tool that automatically generates strongly-typed SDK clients from OpenAPI 3.0+ and Swagger 2.0 specifications. It creates TypeScript clients that extend the `HttpClient` class with organized route groups and comprehensive TypeScript types.
 
 ## Features
