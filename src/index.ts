@@ -5,7 +5,7 @@ export {
   HttpClientOptions,
   HttpClientResponse,
   HttpClientRetryConfig,
-} from './http-client';
+} from './http-client.js';
 
 export {
   HttpClientError,
@@ -23,6 +23,6 @@ export {
   buildHttpErrorResponse,
   classifyErrorForRetry,
   ErrorClassification,
-} from './errors';
+} from './errors.js';
 
 export { isXiorError, XiorError, XiorRequestConfig, XiorResponse } from 'xior';

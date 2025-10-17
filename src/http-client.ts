@@ -1,7 +1,7 @@
 import xior from 'xior';
 import type { XiorError, XiorInstance, XiorRequestConfig, XiorResponse } from 'xior';
 import errorRetryPlugin from 'xior/plugins/error-retry';
-import { logData } from './logger';
+import { logData } from './logger.js';
 import {
   NetworkError,
   TimeoutError,
@@ -14,7 +14,7 @@ import {
   buildNetworkErrorMetadata,
   buildHttpErrorResponse,
   classifyErrorForRetry,
-} from './errors';
+} from './errors.js';
 
 export enum RequestType {
   GET = 'GET',
