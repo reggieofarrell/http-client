@@ -6,6 +6,7 @@ import {
   SerializationError,
   HttpErrorCategory,
   classifyErrorForRetry,
+  isSerializationError,
 } from '../src/errors';
 import MockPlugin from 'xior/plugins/mock';
 
@@ -112,6 +113,55 @@ describe('HttpClient', () => {
 
       const response = await client.delete('/test');
       expect(response.request.status).toBe(204);
+    });
+
+    test('HEAD request', async () => {
+      mock.onHead('/test').reply(200, '', { 'content-length': '123' });
+
+      const response = await client.head('/test');
+      expect(response.request.status).toBe(200);
+      expect(response.request.headers.get('content-length')).toBe('123');
+    });
+
+    test('OPTIONS request', async () => {
+      mock.onOptions('/test').reply(200, '', { allow: 'GET, POST, OPTIONS' });
+
+      const response = await client.options('/test');
+      expect(response.request.status).toBe(200);
+      expect(response.request.headers.get('allow')).toBe('GET, POST, OPTIONS');
+    });
+
+    test('direct request method with GET', async () => {
+      mock.onGet('/test').reply(200, testData);
+
+      const response = await client.request(RequestType.GET, '/test');
+      expect(response.data).toEqual(testData);
+      expect(response.request.status).toBe(200);
+    });
+
+    test('direct request method with POST', async () => {
+      const payload = { name: 'test' };
+      mock.onPost('/test').reply(201, testData);
+
+      const response = await client.request(RequestType.POST, '/test', payload);
+      expect(response.data).toEqual(testData);
+      expect(response.request.status).toBe(201);
+    });
+
+    test('direct request method with HEAD', async () => {
+      mock.onHead('/test').reply(200, '', { 'content-type': 'application/json' });
+
+      const response = await client.request(RequestType.HEAD, '/test');
+      expect(response.request.status).toBe(200);
+      expect(response.request.headers.get('content-type')).toBe('application/json');
+    });
+
+    test('direct request method with OPTIONS', async () => {
+      mock.onOptions('/test').reply(200, '', { allow: 'GET, POST, PUT, DELETE, OPTIONS' });
+
+      const response = await client.request(RequestType.OPTIONS, '/test');
+      expect(response.request.status).toBe(200);
+      expect(response.request.headers.get('allow')).toBe('GET, POST, PUT, DELETE, OPTIONS');
     });
 
     test('handles query parameters correctly', async () => {
@@ -1682,8 +1732,6 @@ describe('HttpClient', () => {
       });
 
       test('handles serialization error detection', async () => {
-        const client = new HttpClient({ baseURL: 'https://api.example.com' });
-
         // Test different serialization error patterns
         const serializationErrors = [
           { message: 'Unexpected token in JSON', name: 'SyntaxError' },
@@ -1696,7 +1744,7 @@ describe('HttpClient', () => {
         ];
 
         serializationErrors.forEach(error => {
-          const isSerialization = (client as any).isSerializationError(error);
+          const isSerialization = isSerializationError(error);
           expect(isSerialization).toBe(true);
         });
       });
