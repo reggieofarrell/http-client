@@ -16,6 +16,7 @@ export {
   HttpErrorCategory,
   classifyHttpError,
   isTimeoutError,
+  isSerializationError,
   classifyNetworkErrorType,
   buildErrorMetadata,
   buildNetworkErrorMetadata,

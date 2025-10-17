@@ -519,7 +519,7 @@ export function classifyErrorForRetry(error: any): ErrorClassification {
  * @param error - The error to check
  * @returns true if the error indicates serialization failure
  */
-function isSerializationError(error: any): boolean {
+export function isSerializationError(error: any): boolean {
   const message = error.message?.toLowerCase() || '';
 
   // Common serialization error patterns

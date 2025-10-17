@@ -9,6 +9,7 @@ import {
   SerializationError,
   classifyHttpError,
   isTimeoutError,
+  isSerializationError,
   buildErrorMetadata,
   buildNetworkErrorMetadata,
   buildHttpErrorResponse,
@@ -21,6 +22,8 @@ export enum RequestType {
   PUT = 'PUT',
   PATCH = 'PATCH',
   DELETE = 'DELETE',
+  HEAD = 'HEAD',
+  OPTIONS = 'OPTIONS',
 }
 
 type BackoffOptions = 'exponential' | 'linear' | 'none';
@@ -345,7 +348,15 @@ export class HttpClient {
     this.requestKeyCache.delete(signature);
   }
 
-  private async _request<T>(
+  /**
+   * Performs an HTTP request with the specified method, URL, data, and configuration
+   * @param requestType - The HTTP method to use (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+   * @param url - The URL to send the request to
+   * @param data - Optional data to send in the request body (for POST, PUT, PATCH)
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
+  async request<T>(
     requestType: RequestType,
     url: string,
     data?: any,
@@ -437,6 +448,12 @@ export class HttpClient {
         case RequestType.DELETE:
           req = await this.client.delete<T>(url, config);
           break;
+        case RequestType.HEAD:
+          req = await this.client.head<T>(url, config);
+          break;
+        case RequestType.OPTIONS:
+          req = await this.client.options<T>(url, config);
+          break;
       }
     } catch (err) {
       this.errorHandler(err, requestType, url);
@@ -454,42 +471,101 @@ export class HttpClient {
     return { request: req!, data: req!.data };
   }
 
+  /**
+   * Performs a GET request to the specified URL
+   * @param url - The URL to send the GET request to
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
   async get<T = any>(
     url: string,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
-    return this._request<T>(RequestType.GET, url, undefined, config);
+    return this.request<T>(RequestType.GET, url, undefined, config);
   }
 
+  /**
+   * Performs a POST request to the specified URL
+   * @param url - The URL to send the POST request to
+   * @param data - The data to send in the request body
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
   async post<T = any>(
     url: string,
     data: any,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
-    return this._request<T>(RequestType.POST, url, data, config);
+    return this.request<T>(RequestType.POST, url, data, config);
   }
 
+  /**
+   * Performs a PUT request to the specified URL
+   * @param url - The URL to send the PUT request to
+   * @param data - The data to send in the request body
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
   async put<T = any>(
     url: string,
     data: any,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
-    return this._request<T>(RequestType.PUT, url, data, config);
+    return this.request<T>(RequestType.PUT, url, data, config);
   }
 
+  /**
+   * Performs a PATCH request to the specified URL
+   * @param url - The URL to send the PATCH request to
+   * @param data - The data to send in the request body
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
   async patch<T = any>(
     url: string,
     data: any,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
-    return this._request<T>(RequestType.PATCH, url, data, config);
+    return this.request<T>(RequestType.PATCH, url, data, config);
   }
 
+  /**
+   * Performs a DELETE request to the specified URL
+   * @param url - The URL to send the DELETE request to
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
   async delete<T = any>(
     url: string,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
-    return this._request<T>(RequestType.DELETE, url, undefined, config);
+    return this.request<T>(RequestType.DELETE, url, undefined, config);
+  }
+
+  /**
+   * Performs a HEAD request to the specified URL
+   * @param url - The URL to send the HEAD request to
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
+  async head<T = any>(
+    url: string,
+    config: HttpClientRequestConfig = {}
+  ): Promise<HttpClientResponse<T>> {
+    return this.request<T>(RequestType.HEAD, url, undefined, config);
+  }
+
+  /**
+   * Performs an OPTIONS request to the specified URL
+   * @param url - The URL to send the OPTIONS request to
+   * @param config - Optional request configuration
+   * @returns Promise resolving to HttpClientResponse
+   */
+  async options<T = any>(
+    url: string,
+    config: HttpClientRequestConfig = {}
+  ): Promise<HttpClientResponse<T>> {
+    return this.request<T>(RequestType.OPTIONS, url, undefined, config);
   }
 
   /**
@@ -603,7 +679,7 @@ export class HttpClient {
         }
       }
 
-      if (this.isSerializationError(error)) {
+      if (isSerializationError(error)) {
         const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
         const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [serialization error] : ${error.message || 'Serialization error'}`;
         return new SerializationError(message, metadata, error);
@@ -639,34 +715,5 @@ export class HttpClient {
    */
   protected errorHandler(error: any, reqType: RequestType, url: string) {
     throw this.processError(error, reqType, url);
-  }
-
-  /**
-   * Determines if an error is a serialization error
-   * @param error - The error to check
-   * @returns true if the error indicates serialization failure
-   */
-  private isSerializationError(error: any): boolean {
-    const message = error.message?.toLowerCase() || '';
-
-    // Common serialization error patterns
-    if (
-      message.includes('json') ||
-      message.includes('parse') ||
-      message.includes('serialize') ||
-      message.includes('deserialize') ||
-      message.includes('invalid json') ||
-      message.includes('unexpected token') ||
-      message.includes('syntax error')
-    ) {
-      return true;
-    }
-
-    // Check for specific error types
-    if (error.name === 'SyntaxError' || error.name === 'TypeError') {
-      return true;
-    }
-
-    return false;
   }
 }

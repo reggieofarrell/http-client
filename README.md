@@ -28,7 +28,7 @@ The `HttpClient` accepts the following configuration options:
 - `debugLevel`: Debug level. 'normal' will log request and response data. 'verbose' will log all xior properties for the request and response.
 - `name`: Name of the client. Used for logging.
 - `retryConfig`: Configuration for error retry functionality. The default config if you don't override it is `{ retries: 0, retryDelay: exponentialDelay, delayFactor: 500, backoff: 'exponential', backoffJitter: 'none' }`. You can override individual properties in the `retryConfig` and they will be merged with the default. We add `delayFactor`, `backoff`, and `backoffJitter` to make configuring the retry delay easier. Otherwise you'd have to create your own `retryDelay` function (which you can still do if you like).
-- `idempotencyConfig`: Configuration for idempotency key generation. The default config is `{ enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }`. This helps prevent duplicate operations when requests are retried due to network issues or timeouts.
+- `idempotencyConfig`: Configuration for idempotency key generation. The default config is `{ enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }`. This helps prevent duplicate operations when requests are retried due to network issues or timeouts. Available methods include GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, though HEAD and OPTIONS are typically not used for idempotency.
 
 For more details, refer to the [source code](src/http-client.ts).
 
@@ -84,6 +84,34 @@ console.log(data);
 ```typescript
 const { data } = await client.delete('/endpoint');
 console.log(data);
+```
+
+#### HEAD Request
+
+```typescript
+const { data } = await client.head('/endpoint');
+console.log(data);
+```
+
+#### OPTIONS Request
+
+```typescript
+const { data } = await client.options('/endpoint');
+console.log(data);
+```
+
+#### Direct Request Method
+
+For maximum flexibility, you can use the `request` method directly with any HTTP method:
+
+```typescript
+import { HttpClient, RequestType } from '@reggieofarrell/http-client';
+
+// Using RequestType enum
+const { data } = await client.request(RequestType.GET, '/endpoint');
+const { data } = await client.request(RequestType.POST, '/endpoint', { key: 'value' });
+const { data } = await client.request(RequestType.HEAD, '/endpoint');
+const { data } = await client.request(RequestType.OPTIONS, '/endpoint');
 ```
 
 ### Request Configuration
