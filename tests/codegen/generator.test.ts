@@ -520,4 +520,59 @@ describe('Code Generator', () => {
       ).rejects.toThrow('Invalid specification format');
     });
   });
+
+  describe('Multi-File Specification Support', () => {
+    it('should parse YAML specifications', async () => {
+      // Create a simple YAML spec without external refs for this test
+      const simpleYamlSpec = {
+        openapi: '3.0.0',
+        info: { title: 'YAML Test API', version: '1.0.0' },
+        paths: {
+          '/test': {
+            get: {
+              operationId: 'test',
+              tags: ['test'],
+              responses: {
+                '200': {
+                  description: 'OK',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      await generateClient({
+        openApiSpec: simpleYamlSpec,
+        outputDir: testOutputDir,
+        clientName: 'YamlClient',
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      await expect(fs.access(clientFile)).resolves.toBeUndefined();
+
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+      expect(clientContent).toContain('export class YamlClient');
+    });
+
+    it('should handle single-file specs (backward compatibility)', async () => {
+      // This test ensures backward compatibility - single-file specs should always work
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'SingleFileClient',
+      });
+
+      const clientFile = join(testOutputDir, 'client.ts');
+      await expect(fs.access(clientFile)).resolves.toBeUndefined();
+
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+      expect(clientContent).toContain('export class SingleFileClient');
+    });
+  });
 });

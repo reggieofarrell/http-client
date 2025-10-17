@@ -20,15 +20,24 @@ The code generator is available as a separate export from the http-client packag
 npm install @reggieofarrell/http-client openapi-typescript
 ```
 
-For Swagger 2.0 support, also install the optional peer dependency:
+For codegen support, install all dependencies as dev dependencies:
 
 ```bash
-npm install @reggieofarrell/http-client openapi-typescript swagger2openapi
+# Required for all codegen
+npm install --save-dev openapi-typescript
+
+# Optional - install only if needed
+npm install --save-dev swagger2openapi          # For Swagger 2.0 support
+npm install --save-dev yaml                      # For YAML specification files
+npm install --save-dev @apidevtools/json-schema-ref-parser  # For multi-file specs
 ```
 
 **Note**:
+- All codegen dependencies are dev dependencies since codegen happens during development/CI
 - `openapi-typescript` is required for type generation
 - `swagger2openapi` is optional and only needed for Swagger 2.0 specifications
+- `yaml` is optional and only needed for YAML specification files (single or multi-file)
+- `@apidevtools/json-schema-ref-parser` is optional and only needed for multi-file specifications
 
 ## Quick Start
 
@@ -93,13 +102,18 @@ src/api-client/
 ```typescript
 import { MyApiClient } from './api-client';
 
+// The generated client already has a default baseURL configured
 const client = new MyApiClient({
-  baseURL: 'https://api.example.com',
   // All standard HttpClient options are available
   retryConfig: {
     retries: 3,
     backoff: 'exponential',
   },
+});
+
+// Or override the default baseURL if needed
+const customClient = new MyApiClient({
+  baseURL: 'https://custom-api.example.com',
 });
 
 // Fully typed methods with intellisense!
@@ -532,7 +546,6 @@ import { MyApiClient } from './api-client';
 import { HttpError } from '@reggieofarrell/http-client';
 
 const client = new MyApiClient({
-  baseURL: 'https://api.example.com',
   retryConfig: {
     retries: 3,
     backoff: 'exponential',
@@ -644,7 +657,6 @@ You can still override the error message path when instantiating the client:
 ```typescript
 // Override the generated default
 const client = new MyApiClient({
-  baseURL: 'https://api.example.com',
   errorMessagePath: 'data.custom.error', // Override
 });
 
@@ -684,6 +696,136 @@ The generator automatically detects the specification format:
 - **Swagger 2.0**: Specs with `"swagger": "2.0"` field
 
 No manual configuration needed - just provide your spec file and the generator handles the rest!
+
+## Multi-File Specifications
+
+The code generator automatically resolves external `$ref` references in your API specifications, making it easy to work with large APIs that are split across multiple files.
+
+### Supported Reference Types
+
+The generator supports various types of external references:
+
+- **Local files (JSON)**: `"$ref": "./schemas/user.json"`
+- **Local files (YAML)**: `"$ref": "./schemas/user.yaml"`
+- **Relative paths**: `"$ref": "../common/error.yaml"`
+- **Nested references**: `"$ref": "./schemas/user.json#/User"`
+- **HTTP/HTTPS URLs**: `"$ref": "https://api.example.com/schemas/common.json"`
+
+### Example Directory Structure
+
+```
+specs/
+├── openapi.yaml          # Main spec with $refs
+├── paths/
+│   ├── users.yaml        # User endpoints
+│   ├── products.yaml     # Product endpoints
+│   └── orders.yaml       # Order endpoints
+├── schemas/
+│   ├── user.yaml         # User schemas
+│   ├── product.yaml      # Product schemas
+│   └── common.yaml       # Shared schemas
+└── components/
+    ├── security.yaml     # Security definitions
+    └── responses.yaml    # Common responses
+```
+
+### Example: Main Spec File
+
+```yaml
+# specs/openapi.yaml
+openapi: 3.0.0
+info:
+  title: My API
+  version: 1.0.0
+paths:
+  /users:
+    $ref: './paths/users.yaml'
+  /products:
+    $ref: './paths/products.yaml'
+components:
+  schemas:
+    User:
+      $ref: './schemas/user.yaml#/User'
+    Product:
+      $ref: './schemas/product.yaml#/Product'
+```
+
+### Example: Referenced Schema File
+
+```yaml
+# specs/schemas/user.yaml
+User:
+  type: object
+  properties:
+    id:
+      type: string
+    name:
+      type: string
+    email:
+      type: string
+      format: email
+```
+
+### Using Multi-File Specs
+
+No additional configuration needed - just provide the main spec file path:
+
+```typescript
+await generateClient({
+  openApiSpec: './specs/openapi.yaml',  // References other files automatically resolved
+  outputDir: './src/api-client',
+  clientName: 'MyApiClient',
+});
+```
+
+### Requirements
+
+For YAML specification support, install:
+
+```bash
+npm install --save-dev yaml
+```
+
+For multi-file specification support, install:
+
+```bash
+npm install --save-dev @apidevtools/json-schema-ref-parser
+```
+
+**Note**:
+- All codegen dependencies are dev dependencies since codegen happens during development/CI
+- `openapi-typescript` is required for all codegen (install as dev dependency)
+- Single-file JSON specifications work with just `openapi-typescript`
+- YAML specifications (single or multi-file) require the `yaml` package
+- Multi-file specifications (JSON or YAML) require the `@apidevtools/json-schema-ref-parser` package
+
+### Error Handling
+
+The generator provides helpful error messages when references can't be resolved:
+
+- **File not found**: Clear message indicating which file is missing
+- **Network errors**: Timeout and connection error details for HTTP/HTTPS refs
+- **Circular references**: Detection and graceful handling of circular dependencies
+
+### Circular References
+
+The generator handles circular references gracefully by ignoring them during dereferencing. This allows you to have schemas that reference each other without causing errors:
+
+```yaml
+# User references Organization
+User:
+  type: object
+  properties:
+    organization:
+      $ref: '#/components/schemas/Organization'
+
+# Organization references User
+Organization:
+  type: object
+  properties:
+    owner:
+      $ref: '#/components/schemas/User'
+```
 
 ## Contributing
 

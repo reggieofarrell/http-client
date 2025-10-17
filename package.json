@@ -66,6 +66,7 @@
     ]
   },
   "devDependencies": {
+    "@apidevtools/json-schema-ref-parser": "^11.0.0",
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
     "@eslint/eslintrc": "^3.3.1",
@@ -91,20 +92,29 @@
     "swagger2openapi": "^7.0.0",
     "ts-jest": "^29.1.1",
     "tsup": "^7.1.0",
-    "typescript": "^5.1.6"
+    "typescript": "^5.1.6",
+    "yaml": "^2.3.4"
   },
   "dependencies": {
     "xior": "^0.7.8"
   },
   "peerDependencies": {
+    "@apidevtools/json-schema-ref-parser": "^11.0.0",
     "openapi-typescript": "^7.0.0",
-    "swagger2openapi": "^7.0.0"
+    "swagger2openapi": "^7.0.0",
+    "yaml": "^2.3.4"
   },
   "peerDependenciesMeta": {
+    "@apidevtools/json-schema-ref-parser": {
+      "optional": true
+    },
     "openapi-typescript": {
       "optional": true
     },
     "swagger2openapi": {
+      "optional": true
+    },
+    "yaml": {
       "optional": true
     }
   },

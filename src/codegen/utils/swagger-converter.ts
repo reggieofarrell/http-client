@@ -34,6 +34,7 @@ export async function convertSwagger2ToOpenAPI3(spec: object): Promise<OpenAPIV3
     const options = {
       patch: true, // Apply patches to fix common issues
       warnPropertyMissing: true, // Warn about missing properties
+      resolve: true, // Resolve external refs in Swagger 2.0
     };
 
     const result = await swagger2openapi.convertObj(spec as any, options);

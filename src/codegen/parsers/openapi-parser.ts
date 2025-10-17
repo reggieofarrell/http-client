@@ -3,6 +3,7 @@
  *
  * This module handles parsing OpenAPI 3.0+ specifications from various sources
  * and provides utilities for extracting operations, schemas, and metadata.
+ * Supports multi-file specifications with external $ref resolution.
  */
 
 import { promises as fs } from 'fs';
@@ -12,25 +13,40 @@ import { ensureOpenAPI3 } from '../utils/swagger-converter.js';
 /**
  * Parse an OpenAPI specification from a file path or object
  * Supports both OpenAPI 3.0+ and Swagger 2.0 specifications
+ * Automatically resolves external $ref references in multi-file specifications
  *
  * @param spec - File path to OpenAPI/Swagger spec or parsed object
- * @returns Parsed OpenAPI 3.0+ specification
+ * @returns Parsed and resolved OpenAPI 3.0+ specification
  * @throws {Error} When the spec cannot be parsed or is invalid
  */
 export async function parseOpenApiSpec(spec: string | object): Promise<OpenAPIV3.Document> {
   let specData: any;
+  let specPath: string | undefined;
+  let originalContent: string | undefined;
 
   if (typeof spec === 'string') {
+    specPath = spec;
     // Read from file
-    const content = await fs.readFile(spec, 'utf-8');
+    originalContent = await fs.readFile(spec, 'utf-8');
 
     if (spec.endsWith('.yaml') || spec.endsWith('.yml')) {
-      // Parse YAML - we'll need a YAML parser for this
-      throw new Error('YAML parsing not yet implemented. Please use JSON format.');
+      // Parse YAML
+      try {
+        const yaml = await import('yaml');
+        specData = yaml.parse(originalContent);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Cannot resolve module')) {
+          throw new Error(
+            'yaml is required for YAML specifications. ' +
+              'Please install it as a peer dependency: npm install yaml'
+          );
+        }
+        throw new Error(`Failed to parse YAML from ${spec}: ${error}`);
+      }
     } else {
       // Parse JSON
       try {
-        specData = JSON.parse(content);
+        specData = JSON.parse(originalContent);
       } catch (error) {
         throw new Error(`Failed to parse JSON from ${spec}: ${error}`);
       }
@@ -38,6 +54,63 @@ export async function parseOpenApiSpec(spec: string | object): Promise<OpenAPIV3
   } else {
     // Use provided object
     specData = spec;
+  }
+
+  // Resolve external $ref references in multi-file specifications
+  try {
+    const $RefParser = await import('@apidevtools/json-schema-ref-parser');
+
+    // Check if spec contains any external $ref (file paths or URLs, not internal #/ refs)
+    // Check both the string content and the parsed data
+    const contentToCheck = originalContent || JSON.stringify(specData);
+    const hasExternalFileRefs =
+      contentToCheck.includes('./') &&
+      (contentToCheck.includes('$ref') || contentToCheck.includes('"$ref"'));
+
+    if (hasExternalFileRefs) {
+      // Dereference all $refs (local files + HTTP/HTTPS)
+      // Pass the file path if available so relative refs are resolved correctly
+      specData = await $RefParser.default.dereference(specPath || specData, {
+        resolve: {
+          file: true, // Enable local file references
+          http: {
+            // Enable HTTP/HTTPS references
+            timeout: 10000, // 10 second timeout
+          },
+        },
+        dereference: {
+          circular: 'ignore', // Handle circular refs gracefully
+        },
+      });
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Cannot resolve module')) {
+      // @apidevtools/json-schema-ref-parser not installed - continue without ref resolution
+      // This is fine for single-file specs or when user doesn't need multi-file support
+    } else if (error instanceof Error) {
+      // Real error during reference resolution
+      if (
+        error.message.includes('ENOENT') ||
+        error.message.includes('not found') ||
+        error.message.includes('Unable to resolve')
+      ) {
+        throw new Error(
+          `Failed to resolve external reference: File not found. ` +
+            `Make sure all referenced files exist. Original error: ${error.message}`
+        );
+      } else if (error.message.includes('ENOTFOUND') || error.message.includes('Network')) {
+        throw new Error(
+          `Failed to resolve external reference: Network error. ` +
+            `Check your network connection and URL. Original error: ${error.message}`
+        );
+      } else if (error.message.includes('Circular')) {
+        throw new Error(
+          `Circular reference detected in specification. ` + `Original error: ${error.message}`
+        );
+      } else {
+        throw new Error(`Failed to resolve external references: ${error.message}`);
+      }
+    }
   }
 
   // Convert Swagger 2.0 to OpenAPI 3.0+ if needed
