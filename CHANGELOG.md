@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.3.0](https://github.com/reggieofarrell/http-client/compare/v2.2.0...v2.3.0) (2025-10-31)
+
+
+### Features
+
+* add query parameter support in HttpClient requests ([#11](https://github.com/reggieofarrell/http-client/issues/11)) ([769c102](https://github.com/reggieofarrell/http-client/commit/769c102dacd88f4a6cd4a965ac37c469cde31c20))
+
 ## [2.2.0](https://github.com/reggieofarrell/http-client/compare/v2.1.0...v2.2.0) (2025-10-31)
 
 
