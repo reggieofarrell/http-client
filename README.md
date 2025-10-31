@@ -278,6 +278,72 @@ const { data } = await client.get('/users/:userId/posts/:postId', {
 });
 ```
 
+### Query Parameters
+
+You can pass query parameters to requests using either the `query` or `params` property. Both are aliases for the same functionality - `query` is provided as a more intuitive name, while `params` matches the XiorRequestConfig API. If both are provided, `query` takes precedence.
+
+#### Basic Usage
+
+```typescript
+// Using the `query` alias
+const { data } = await client.get('/users', {
+  query: { limit: 10, offset: 0 }
+});
+// Results in: /users?limit=10&offset=0
+
+// Using the `params` property (XiorRequestConfig API)
+const { data } = await client.get('/users', {
+  params: { limit: 10, offset: 0 }
+});
+// Results in: /users?limit=10&offset=0
+```
+
+#### Query Parameters with All HTTP Methods
+
+Query parameters work with all HTTP methods:
+
+```typescript
+// GET request
+const { data } = await client.get('/users', {
+  query: { status: 'active', limit: 20 }
+});
+
+// POST request
+const { data } = await client.post('/search', { query: 'test' }, {
+  query: { page: 1, perPage: 10 }
+});
+
+// DELETE request
+const { data } = await client.delete('/users', {
+  query: { userId: '123' }
+});
+```
+
+#### Combining Query Parameters with Path Parameters
+
+You can use both query parameters and path parameters together:
+
+```typescript
+const { data } = await client.get('/users/:userId/posts', {
+  pathParams: { userId: '123' },
+  query: { limit: 10, sort: 'date' }
+});
+// Results in: /users/123/posts?limit=10&sort=date
+```
+
+#### Query Parameter Precedence
+
+If both `query` and `params` are provided, `query` takes precedence:
+
+```typescript
+// query will be used, params will be ignored
+const { data } = await client.get('/users', {
+  query: { limit: 10 },
+  params: { limit: 20 } // This will be ignored
+});
+// Results in: /users?limit=10
+```
+
 ### Timeout Configuration
 
 The `HttpClient` supports timeout configuration through Xior's built-in timeout functionality. You can set timeouts globally for all requests or per-request.

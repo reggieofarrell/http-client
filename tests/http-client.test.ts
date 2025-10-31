@@ -421,6 +421,93 @@ describe('HttpClient', () => {
       expect(response.data.query).toBe('bar');
     });
 
+    test('works with query parameter alias', async () => {
+      mock.onGet('/users').reply((config: any) => {
+        // Check if query params are preserved
+        if (config.params?.limit === '10' && config.params?.offset === '0') {
+          return [200, { users: [], limit: 10, offset: 0 }];
+        }
+        return [400, { error: 'Query param mismatch' }];
+      });
+
+      const response = await client.get('/users', {
+        query: { limit: '10', offset: '0' },
+      });
+
+      expect(response.data.limit).toBe(10);
+      expect(response.data.offset).toBe(0);
+    });
+
+    test('works with query parameter alias and path parameters', async () => {
+      mock.onGet('/users/123/posts').reply((config: any) => {
+        // Check if query params are preserved
+        if (config.params?.limit === '10' && config.params?.sort === 'date') {
+          return [200, { userId: '123', posts: [], limit: 10, sort: 'date' }];
+        }
+        return [400, { error: 'Query param mismatch' }];
+      });
+
+      const response = await client.get('/users/:userId/posts', {
+        pathParams: { userId: '123' },
+        query: { limit: '10', sort: 'date' },
+      });
+
+      expect(response.data.userId).toBe('123');
+      expect(response.data.limit).toBe(10);
+      expect(response.data.sort).toBe('date');
+    });
+
+    test('query parameter takes precedence over params when both are provided', async () => {
+      mock.onGet('/users').reply((config: any) => {
+        // Check if query params are used (query should take precedence)
+        if (config.params?.limit === '10') {
+          return [200, { users: [], limit: 10 }];
+        }
+        return [400, { error: 'Query param mismatch' }];
+      });
+
+      const response = await client.get('/users', {
+        query: { limit: '10' },
+        params: { limit: '20' }, // This should be ignored
+      });
+
+      expect(response.data.limit).toBe(10);
+    });
+
+    test('query parameter works with POST requests', async () => {
+      mock.onPost('/search').reply((config: any) => {
+        // Check if query params are preserved
+        if (config.params?.page === '1' && config.params?.perPage === '10') {
+          return [200, { results: [], page: 1, perPage: 10 }];
+        }
+        return [400, { error: 'Query param mismatch' }];
+      });
+
+      const response = await client.post('/search', { query: 'test' }, {
+        query: { page: '1', perPage: '10' },
+      });
+
+      expect(response.data.page).toBe(1);
+      expect(response.data.perPage).toBe(10);
+    });
+
+    test('query parameter works with DELETE requests', async () => {
+      mock.onDelete('/users').reply((config: any) => {
+        // Check if query params are preserved
+        if (config.params?.userId === '123') {
+          return [200, { deleted: true, userId: '123' }];
+        }
+        return [400, { error: 'Query param mismatch' }];
+      });
+
+      const response = await client.delete('/users', {
+        query: { userId: '123' },
+      });
+
+      expect(response.data.deleted).toBe(true);
+      expect(response.data.userId).toBe('123');
+    });
+
     test('handles path parameters at the beginning of URL', async () => {
       mock.onGet('/123/posts').reply(200, { userId: '123' });
 
