@@ -109,6 +109,14 @@ export interface HttpClientRequestConfig extends XiorRequestConfig {
    * Function: (errorResponse) => errorResponse.data?.error
    */
   errorMessagePath?: ErrorMessageExtractor;
+  /**
+   * Path parameters to substitute in the URL
+   * URLs can contain path parameters in the format `:paramName`
+   * Example: `/users/:userId/posts/:postId` with `pathParams: { userId: '123', postId: '456' }`
+   * Results in: `/users/123/posts/456`
+   * Values are automatically URL-encoded for safety
+   */
+  pathParams?: Record<string, string | number>;
 }
 
 export interface HttpClientResponse<T> {
@@ -369,6 +377,63 @@ export class HttpClient {
     return typeof current === 'string' ? current : undefined;
   }
 
+  /**
+   * Substitutes path parameters in a URL with values from the pathParams object
+   * Path parameters are defined using the :paramName format in the URL
+   * All substituted values are URL-encoded for safety
+   * @param url - The URL containing path parameters in :paramName format
+   * @param pathParams - Object containing parameter names and their values
+   * @returns The URL with path parameters substituted and URL-encoded
+   * @throws Error if a required path parameter is missing from pathParams
+   */
+  private substitutePathParams(url: string, pathParams?: Record<string, string | number>): string {
+    // If no pathParams provided, return URL as-is
+    if (!pathParams || Object.keys(pathParams).length === 0) {
+      // Check if URL contains any :paramName patterns - if so, throw error
+      const paramPattern = /:([a-zA-Z_][a-zA-Z0-9_]*)/g;
+      const matches = url.match(paramPattern);
+      if (matches && matches.length > 0) {
+        const missingParams = matches.map(match => match.substring(1)); // Remove the :
+        throw new Error(
+          `Missing required path parameters: ${missingParams.join(', ')}. Provide values via pathParams config.`
+        );
+      }
+      return url;
+    }
+
+    // Find all path parameter patterns in the URL (:paramName)
+    // Pattern matches : followed by a valid identifier (starts with letter/underscore, then alphanumeric/underscore)
+    const paramPattern = /:([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    let substitutedUrl = url;
+    const usedParams = new Set<string>();
+
+    // Replace each parameter with its value from pathParams
+    substitutedUrl = substitutedUrl.replace(paramPattern, (_match, paramName) => {
+      // Check if this parameter exists in pathParams
+      if (!(paramName in pathParams)) {
+        throw new Error(
+          `Missing required path parameter: ${paramName}. Provide value via pathParams.${paramName}`
+        );
+      }
+
+      // Mark this parameter as used
+      usedParams.add(paramName);
+
+      // Get the value and convert to string if it's a number
+      const value = pathParams[paramName];
+      const stringValue = typeof value === 'number' ? value.toString() : value;
+
+      // URL-encode the value using encodeURIComponent (encodes everything except: A-Z a-z 0-9 - _ . ! ~ * ' ( ))
+      // This ensures special characters are properly encoded for URL paths
+      return encodeURIComponent(stringValue);
+    });
+
+    // Check for unused pathParams (optional - could be useful for debugging)
+    // Note: We don't throw an error for unused params as they might be intended for query params or other use
+
+    return substitutedUrl;
+  }
+
   private generateRequestSignature(method: RequestType, url: string, data?: any): string {
     // Create a unique signature for the request based on method, URL, and data
     const dataString = data ? JSON.stringify(data) : '';
@@ -400,9 +465,9 @@ export class HttpClient {
   /**
    * Performs an HTTP request with the specified method, URL, data, and configuration
    * @param requestType - The HTTP method to use (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
-   * @param url - The URL to send the request to
+   * @param url - The URL to send the request to. Can contain path parameters in the format `:paramName`
    * @param data - Optional data to send in the request body (for POST, PUT, PATCH)
-   * @param config - Optional request configuration
+   * @param config - Optional request configuration. Use `pathParams` to substitute path parameters in the URL
    * @returns Promise resolving to HttpClientResponse
    */
   async request<T>(
@@ -412,6 +477,20 @@ export class HttpClient {
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
     let req: XiorResponse<T> | undefined;
+
+    // Handle path parameter substitution early, before any other processing
+    // This ensures the substituted URL is used throughout the request lifecycle
+    // Extract pathParams from config before processing (we'll delete it later)
+    const pathParams = config.pathParams;
+    if (pathParams !== undefined) {
+      // Substitute path parameters in the URL
+      url = this.substitutePathParams(url, pathParams);
+      // Remove pathParams from config as it's not part of XiorRequestConfig
+      delete config.pathParams;
+    } else {
+      // Even if pathParams is not provided, check if URL has parameters and throw error
+      url = this.substitutePathParams(url, undefined);
+    }
 
     // Handle per-request retry config by mapping it to xior's error-retry plugin options
     if (config.retryConfig) {
