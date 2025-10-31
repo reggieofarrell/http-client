@@ -297,7 +297,13 @@ function extractQueryParameters(
 function extractRequestBody(
   operation: OpenAPIV3.OperationObject
 ): { contentType: string; schema: OpenAPIV3.SchemaObject } | undefined {
-  if (!operation.requestBody || '$ref' in operation.requestBody) {
+  if (!operation.requestBody) {
+    return undefined;
+  }
+
+  // After dereferencing, requestBody should be fully resolved
+  // If it still has $ref, it means dereferencing failed - skip it
+  if ('$ref' in operation.requestBody) {
     return undefined;
   }
 
@@ -337,6 +343,8 @@ function extractResponses(
   }> = [];
 
   for (const [statusCode, response] of Object.entries(operation.responses || {})) {
+    // After dereferencing, responses should be fully resolved
+    // If it still has $ref, it means dereferencing failed - skip it
     if ('$ref' in response) continue;
 
     const content = response.content;
@@ -344,11 +352,22 @@ function extractResponses(
 
     for (const [contentType, mediaType] of Object.entries(content)) {
       if (mediaType.schema) {
-        responses.push({
-          statusCode,
-          contentType,
-          schema: mediaType.schema as OpenAPIV3.SchemaObject,
-        });
+        const schema = mediaType.schema;
+        // Handle $ref schemas by preserving the reference
+        // This allows type name extraction even after dereferencing
+        if ('$ref' in schema) {
+          responses.push({
+            statusCode,
+            contentType,
+            schema: { $ref: schema.$ref } as OpenAPIV3.SchemaObject,
+          });
+        } else {
+          responses.push({
+            statusCode,
+            contentType,
+            schema: schema as OpenAPIV3.SchemaObject,
+          });
+        }
       }
     }
   }

@@ -8,7 +8,11 @@
 import openapiTS, { astToString } from 'openapi-typescript';
 import { join } from 'path';
 import { promises as fs } from 'fs';
-import { parseOpenApiSpec, detectErrorMessagePath } from './parsers/openapi-parser.js';
+import {
+  parseOpenApiSpec,
+  detectErrorMessagePath,
+  extractResponseTypeMapping,
+} from './parsers/openapi-parser.js';
 import { parseRoutes } from './parsers/route-parser.js';
 import { generateClientClass } from './templates/client-template.js';
 import { generateRouteGroups } from './templates/route-group-template.js';
@@ -73,7 +77,38 @@ export async function generateClient(options: GenerateClientOptions): Promise<vo
   } = options;
 
   try {
-    // Parse the OpenAPI specification
+    // Extract type names BEFORE dereferencing
+    // We need to parse the original spec to get $ref values before they're dereferenced
+    let originalSpec: any;
+    if (typeof openApiSpec === 'string') {
+      const content = await fs.readFile(openApiSpec, 'utf-8');
+      if (openApiSpec.endsWith('.yaml') || openApiSpec.endsWith('.yml')) {
+        try {
+          const yaml = await import('yaml');
+          originalSpec = yaml.parse(content);
+        } catch (error) {
+          // If yaml parsing fails, continue without type extraction
+          originalSpec = null;
+        }
+      } else {
+        try {
+          originalSpec = JSON.parse(content);
+        } catch (error) {
+          // If JSON parsing fails, continue without type extraction
+          originalSpec = null;
+        }
+      }
+    } else {
+      originalSpec = openApiSpec;
+    }
+
+    // Extract response type mapping from original spec (before dereferencing)
+    // Maps "path:method" to response type name
+    const responseTypeMapping = originalSpec
+      ? extractResponseTypeMapping(originalSpec)
+      : new Map<string, string>();
+
+    // Parse the OpenAPI specification (this will dereference everything)
     const spec = await parseOpenApiSpec(openApiSpec);
 
     // Extract and validate the specification
@@ -137,6 +172,8 @@ export async function generateClient(options: GenerateClientOptions): Promise<vo
     // Generate route group classes
     const routeGroupClasses = generateRouteGroups(routeGroups, {
       typesFile: typesGenerated ? typesOutputPath : undefined,
+      originalSpec: originalSpec, // Pass original spec for per-group type extraction
+      responseTypeMapping: responseTypeMapping.size > 0 ? responseTypeMapping : undefined,
     });
 
     // Write all generated files to the output directory
