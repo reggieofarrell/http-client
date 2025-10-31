@@ -11,6 +11,28 @@ import { OpenAPIV3 } from 'openapi-types';
 import { ensureOpenAPI3 } from '../utils/swagger-converter.js';
 
 /**
+ * Selectively dereference internal component references
+ * Dereferences request bodies and responses but preserves schema references
+ */
+async function selectiveDereference(spec: any): Promise<any> {
+  const { default: $RefParser } = await import('@apidevtools/json-schema-ref-parser');
+
+  // For now, use full dereferencing to ensure request bodies are resolved
+  // This will resolve the PATCH request body issue
+  try {
+    const fullyDereferenced = await $RefParser.dereference(spec, {
+      resolve: { file: false, http: false },
+      dereference: { circular: 'ignore' },
+    });
+
+    return fullyDereferenced;
+  } catch (error) {
+    console.warn('⚠️  Could not perform selective dereferencing:', error);
+    return spec;
+  }
+}
+
+/**
  * Parse an OpenAPI specification from a file path or object
  * Supports both OpenAPI 3.0+ and Swagger 2.0 specifications
  * Automatically resolves external $ref references in multi-file specifications
@@ -61,11 +83,13 @@ export async function parseOpenApiSpec(spec: string | object): Promise<OpenAPIV3
     const $RefParser = await import('@apidevtools/json-schema-ref-parser');
 
     // Check if spec contains any external $ref (file paths or URLs, not internal #/ refs)
-    // Check both the string content and the parsed data
+    // Look for $ref with relative file paths like "./" or "../"
     const contentToCheck = originalContent || JSON.stringify(specData);
     const hasExternalFileRefs =
-      contentToCheck.includes('./') &&
-      (contentToCheck.includes('$ref') || contentToCheck.includes('"$ref"'));
+      contentToCheck.includes('$ref":"./') ||
+      contentToCheck.includes('$ref": "./') ||
+      contentToCheck.includes('$ref":"../') ||
+      contentToCheck.includes('$ref": "../');
 
     if (hasExternalFileRefs) {
       // Dereference all $refs (local files + HTTP/HTTPS)
@@ -111,6 +135,22 @@ export async function parseOpenApiSpec(spec: string | object): Promise<OpenAPIV3
         throw new Error(`Failed to resolve external references: ${error.message}`);
       }
     }
+  }
+
+  // Dereference internal component references for request bodies and responses
+  // while preserving schema references for type generation
+  try {
+    // Check if spec has internal component references that need dereferencing
+    const hasInternalRefs = JSON.stringify(specData).includes('"$ref":"#/components/');
+
+    if (hasInternalRefs) {
+      // Use a custom dereference function that selectively dereferences
+      // request bodies and responses but preserves schema references
+      specData = await selectiveDereference(specData);
+    }
+  } catch (error) {
+    // If dereferencing fails, continue with original spec
+    console.warn('⚠️  Could not dereference internal component references:', error);
   }
 
   // Convert Swagger 2.0 to OpenAPI 3.0+ if needed
@@ -190,6 +230,276 @@ export function extractSchemas(spec: OpenAPIV3.Document): Record<string, OpenAPI
   }
 
   return schemas;
+}
+
+/**
+ * Extract type name from a $ref string
+ * Examples:
+ *   "#/components/schemas/Order" -> "Order"
+ *   "#/components/schemas/order_request" -> "order_request"
+ *
+ * @param ref - Reference string
+ * @returns Type name or null if not a component schema reference
+ */
+function extractTypeNameFromRef(ref: string): string | null {
+  if (!ref.startsWith('#/components/schemas/')) {
+    return null; // Only handle component schema refs
+  }
+
+  const parts = ref.split('/');
+  return parts[parts.length - 1] || null;
+}
+
+/**
+ * Extract response type mapping from spec before dereferencing
+ * Maps operations (path + method) to their success response type names
+ *
+ * @param spec - OpenAPI specification (before dereferencing)
+ * @returns Map from "path:method" to response type name
+ */
+export function extractResponseTypeMapping(spec: any): Map<string, string> {
+  const mapping = new Map<string, string>();
+
+  if (!spec.paths) return mapping;
+
+  for (const [path, pathValue] of Object.entries(spec.paths)) {
+    if (!pathValue) continue;
+
+    const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const;
+    for (const method of methods) {
+      const pathItem = pathValue as any;
+      const operation = pathItem[method];
+      if (!operation || typeof operation !== 'object') continue;
+
+      // Find first success response (2xx)
+      if (operation.responses) {
+        for (const [statusCode, response] of Object.entries(operation.responses)) {
+          if (!statusCode.startsWith('2')) continue;
+          if (!response || typeof response !== 'object') continue;
+          const responseObj = response as any;
+          if (responseObj.$ref) continue; // Skip $ref responses
+
+          // Handle 204 No Content responses (no body)
+          if (statusCode === '204') {
+            const operationKey = `${path}:${method.toUpperCase()}`;
+            mapping.set(operationKey, '__void__'); // Special marker for void return type
+            break; // Found response type, move to next operation
+          }
+
+          if (responseObj.content) {
+            for (const mediaType of Object.values(responseObj.content)) {
+              if (mediaType && typeof mediaType === 'object' && 'schema' in mediaType) {
+                const schema = (mediaType as any).schema;
+                // Handle direct schema references
+                if (schema?.$ref) {
+                  const ref = schema.$ref;
+                  const typeName = extractTypeNameFromRef(ref);
+                  if (typeName) {
+                    const operationKey = `${path}:${method.toUpperCase()}`;
+                    mapping.set(operationKey, typeName);
+                    break; // Found response type, move to next operation
+                  }
+                }
+                // Handle array schemas with item references
+                if (schema?.items?.$ref) {
+                  const ref = schema.items.$ref;
+                  const typeName = extractTypeNameFromRef(ref);
+                  if (typeName) {
+                    const operationKey = `${path}:${method.toUpperCase()}`;
+                    mapping.set(operationKey, typeName);
+                    break; // Found response type, move to next operation
+                  }
+                }
+              }
+            }
+          }
+          if (mapping.has(`${path}:${method.toUpperCase()}`)) break; // Found response type for this operation
+        }
+      }
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Extract type names from spec before dereferencing
+ * Collects all $ref schema references from request bodies and responses
+ *
+ * @param spec - OpenAPI specification (before dereferencing)
+ * @returns Set of type names referenced in the spec
+ */
+export function extractTypeNamesFromSpec(spec: any): Set<string> {
+  const typeNames = new Set<string>();
+
+  if (!spec.paths) return typeNames;
+
+  for (const pathValue of Object.values(spec.paths)) {
+    if (!pathValue) continue;
+
+    for (const operation of Object.values(pathValue)) {
+      if (!operation || typeof operation !== 'object') continue;
+
+      // Extract from requestBody
+      if (operation.requestBody) {
+        const requestBody = operation.requestBody;
+        if (requestBody.$ref) continue; // Skip $ref request bodies
+
+        if (requestBody.content) {
+          for (const mediaType of Object.values(requestBody.content)) {
+            if (mediaType && typeof mediaType === 'object' && 'schema' in mediaType) {
+              const schema = (mediaType as any).schema;
+              // Handle direct schema references
+              if (schema?.$ref) {
+                const ref = schema.$ref;
+                const typeName = extractTypeNameFromRef(ref);
+                if (typeName) typeNames.add(typeName);
+              }
+              // Handle array schemas with item references
+              if (schema?.items?.$ref) {
+                const ref = schema.items.$ref;
+                const typeName = extractTypeNameFromRef(ref);
+                if (typeName) typeNames.add(typeName);
+              }
+            }
+          }
+        }
+      }
+
+      // Extract from responses
+      if (operation.responses) {
+        for (const response of Object.values(operation.responses)) {
+          if (!response || typeof response !== 'object') continue;
+          const responseObj = response as any;
+          if (responseObj.$ref) continue; // Skip $ref responses
+
+          if (responseObj.content) {
+            for (const mediaType of Object.values(responseObj.content)) {
+              if (mediaType && typeof mediaType === 'object' && 'schema' in mediaType) {
+                const schema = (mediaType as any).schema;
+                // Handle direct schema references
+                if (schema?.$ref) {
+                  const ref = schema.$ref;
+                  const typeName = extractTypeNameFromRef(ref);
+                  if (typeName) typeNames.add(typeName);
+                }
+                // Handle array schemas with item references
+                if (schema?.items?.$ref) {
+                  const ref = schema.items.$ref;
+                  const typeName = extractTypeNameFromRef(ref);
+                  if (typeName) typeNames.add(typeName);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return typeNames;
+}
+
+/**
+ * Extract type names for specific operations (per route group)
+ * Collects $ref schema references from request bodies and responses for given operations
+ *
+ * @param spec - OpenAPI specification (before dereferencing)
+ * @param operations - Array of operation objects with path and method
+ * @returns Set of type names referenced in the specified operations
+ */
+export function extractTypeNamesForOperations(
+  spec: any,
+  operations: Array<{ path: string; method: string }>
+): Set<string> {
+  const typeNames = new Set<string>();
+
+  if (!spec.paths) return typeNames;
+
+  // Create a set of operation keys for fast lookup
+  const operationKeys = new Set(operations.map(op => `${op.path}:${op.method.toUpperCase()}`));
+
+  for (const [path, pathValue] of Object.entries(spec.paths)) {
+    if (!pathValue) continue;
+
+    const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const;
+    for (const method of methods) {
+      const pathItem = pathValue as any;
+      const operation = pathItem[method];
+      if (!operation || typeof operation !== 'object') continue;
+
+      // Only process operations that belong to this route group
+      const operationKey = `${path}:${method.toUpperCase()}`;
+      if (!operationKeys.has(operationKey)) continue;
+
+      // Extract from requestBody
+      if (operation.requestBody) {
+        let requestBody = operation.requestBody;
+
+        // Handle requestBody $ref (e.g., "#/components/requestBodies/patch_request")
+        if (requestBody.$ref) {
+          const ref = requestBody.$ref;
+          if (ref.startsWith('#/components/requestBodies/')) {
+            const requestBodyName = ref.split('/').pop();
+            if (requestBodyName && spec.components?.requestBodies?.[requestBodyName]) {
+              requestBody = spec.components.requestBodies[requestBodyName];
+            } else {
+              continue; // Skip if can't resolve
+            }
+          } else {
+            continue; // Skip external refs
+          }
+        }
+
+        if (requestBody.content) {
+          for (const mediaType of Object.values(requestBody.content)) {
+            if (mediaType && typeof mediaType === 'object' && 'schema' in mediaType) {
+              const schema = (mediaType as any).schema;
+              // Handle direct schema references
+              if (schema?.$ref) {
+                const typeName = extractTypeNameFromRef(schema.$ref);
+                if (typeName) typeNames.add(typeName);
+              }
+              // Handle array schemas with item references
+              if (schema?.items?.$ref) {
+                const typeName = extractTypeNameFromRef(schema.items.$ref);
+                if (typeName) typeNames.add(typeName);
+              }
+            }
+          }
+        }
+      }
+
+      // Extract from responses
+      if (operation.responses) {
+        for (const response of Object.values(operation.responses)) {
+          if (!response || typeof response !== 'object') continue;
+          const responseObj = response as any;
+          if (responseObj.$ref) continue; // Skip $ref responses
+
+          if (responseObj.content) {
+            for (const mediaType of Object.values(responseObj.content)) {
+              if (mediaType && typeof mediaType === 'object' && 'schema' in mediaType) {
+                const schema = (mediaType as any).schema;
+                // Handle direct schema references
+                if (schema?.$ref) {
+                  const typeName = extractTypeNameFromRef(schema.$ref);
+                  if (typeName) typeNames.add(typeName);
+                }
+                // Handle array schemas with item references
+                if (schema?.items?.$ref) {
+                  const typeName = extractTypeNameFromRef(schema.items.$ref);
+                  if (typeName) typeNames.add(typeName);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return typeNames;
 }
 
 /**

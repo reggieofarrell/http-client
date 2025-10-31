@@ -28,7 +28,7 @@ export function toCamelCase(str: string): string {
 
   // Split on delimiters or camelCase boundaries
   const words = str
-    .split(/[-_\s]+/)
+    .split(/[-_\s.]+/) // Added dots to the split pattern
     .flatMap(word => {
       // Split camelCase/PascalCase words
       if (/^[a-zA-Z]+$/.test(word)) {
