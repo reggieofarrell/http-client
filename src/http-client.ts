@@ -117,6 +117,14 @@ export interface HttpClientRequestConfig extends XiorRequestConfig {
    * Values are automatically URL-encoded for safety
    */
   pathParams?: Record<string, string | number>;
+  /**
+   * Query parameters for the request
+   * This is an alias for the `params` property from XiorRequestConfig
+   * Both `query` and `params` can be used interchangeably
+   * If both are provided, `query` takes precedence
+   * Example: `{ query: { foo: 'bar', limit: 10 } }` or `{ params: { foo: 'bar', limit: 10 } }`
+   */
+  query?: Record<string, any>;
 }
 
 export interface HttpClientResponse<T> {
@@ -490,6 +498,16 @@ export class HttpClient {
     } else {
       // Even if pathParams is not provided, check if URL has parameters and throw error
       url = this.substitutePathParams(url, undefined);
+    }
+
+    // Handle query parameter alias - map `query` to `params` if provided
+    // If both `query` and `params` are provided, `query` takes precedence
+    if (config.query !== undefined) {
+      // Use query as params, overriding any existing params
+      // Create a copy to avoid reference issues
+      config.params = { ...config.query };
+      // Remove query from config as it's not part of XiorRequestConfig
+      delete config.query;
     }
 
     // Handle per-request retry config by mapping it to xior's error-retry plugin options
