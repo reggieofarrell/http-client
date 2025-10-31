@@ -12,6 +12,10 @@ import {
   extractTypeNamesForOperations,
   extractResponseTypeMapping,
 } from '../../src/codegen/parsers/openapi-parser';
+import {
+  extractCustomErrorSchemas,
+  generateErrorTypes,
+} from '../../src/codegen/templates/error-template';
 import * as sampleOpenApiSpec from './sample-openapi.json';
 import * as sampleSwagger2Spec from './sample-swagger2.json';
 
@@ -1220,6 +1224,189 @@ describe('Code Generator', () => {
 
       const mapping = extractResponseTypeMapping(spec);
       expect(mapping.get('/users:GET')).toBe('User');
+    });
+  });
+
+  describe('Error Interface Naming', () => {
+    it('should generate error interface names from schema names', () => {
+      const spec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            get: {
+              responses: {
+                '400': {
+                  content: {
+                    'application/json': {
+                      schema: {
+                        $ref: '#/components/schemas/error_400',
+                      },
+                    },
+                  },
+                },
+                '500': {
+                  content: {
+                    'application/json': {
+                      schema: {
+                        $ref: '#/components/schemas/error_500',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            error_400: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', enum: ['INVALID_REQUEST'] },
+                details: { type: 'array', items: { type: 'object' } },
+                debug_id: { type: 'string' },
+              },
+            },
+            error_500: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', enum: ['INTERNAL_SERVER_ERROR'] },
+                debug_id: { type: 'string' },
+              },
+            },
+          },
+        },
+      };
+
+      const errors = extractCustomErrorSchemas(spec as any);
+      expect(errors).toHaveLength(2);
+      expect(errors[0].schemaName).toBe('error_400');
+      expect(errors[1].schemaName).toBe('error_500');
+
+      const errorTypes = generateErrorTypes(errors);
+      expect(errorTypes).toContain('export interface Error400');
+      expect(errorTypes).toContain('export interface Error500');
+      expect(errorTypes).not.toContain('ApiErrorResponse');
+    });
+
+    it('should name operation-specific errors correctly', () => {
+      const spec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/orders': {
+            patch: {
+              responses: {
+                '400': {
+                  content: {
+                    'application/json': {
+                      schema: {
+                        $ref: '#/components/schemas/orders.patch-400',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            'orders.patch-400': {
+              properties: {
+                details: { type: 'array', items: { type: 'object' } },
+                debug_id: { type: 'string' },
+              },
+            },
+          },
+        },
+      };
+
+      const errors = extractCustomErrorSchemas(spec as any);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].schemaName).toBe('orders.patch-400');
+
+      const errorTypes = generateErrorTypes(errors);
+      expect(errorTypes).toContain('export interface OrdersPatch400');
+    });
+
+    it('should use Error{statusCode} for inline error schemas', () => {
+      const spec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            get: {
+              responses: {
+                '404': {
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          code: { type: 'string' },
+                          message: { type: 'string' },
+                          details: { type: 'array', items: { type: 'object' } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {},
+        },
+      };
+
+      const errors = extractCustomErrorSchemas(spec as any);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].schemaName).toBe('error_404');
+
+      const errorTypes = generateErrorTypes(errors);
+      expect(errorTypes).toContain('export interface Error404');
+    });
+
+    it('should handle error names with underscores and hyphens', () => {
+      const spec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            get: {
+              responses: {
+                '422': {
+                  content: {
+                    'application/json': {
+                      schema: {
+                        $ref: '#/components/schemas/error_422',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            error_422: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', enum: ['UNPROCESSABLE_ENTITY'] },
+                details: { type: 'array', items: { type: 'object' } },
+              },
+            },
+          },
+        },
+      };
+
+      const errors = extractCustomErrorSchemas(spec as any);
+      const errorTypes = generateErrorTypes(errors);
+      expect(errorTypes).toContain('export interface Error422');
     });
   });
 });

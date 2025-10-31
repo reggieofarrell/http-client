@@ -6,6 +6,7 @@
  */
 
 import { OpenAPIV3 } from 'openapi-types';
+import { toPascalCase } from '../utils/naming.js';
 
 /**
  * Represents a custom error schema found in the OpenAPI spec
@@ -13,6 +14,8 @@ import { OpenAPIV3 } from 'openapi-types';
 interface CustomErrorSchema {
   /** HTTP status code pattern (e.g., '404', '4XX', '5XX') */
   statusCode: string;
+  /** Schema name from OpenAPI spec (e.g., 'error_400', 'orders.patch-400') */
+  schemaName: string;
   /** The error schema */
   schema: OpenAPIV3.SchemaObject;
   /** Additional properties beyond standard error fields */
@@ -28,7 +31,13 @@ interface CustomErrorSchema {
  * Check if an error schema has custom properties beyond standard HTTP error fields
  */
 function hasCustomErrorProperties(schema: OpenAPIV3.SchemaObject): boolean {
-  if (schema.type !== 'object' || !schema.properties) {
+  // If schema has properties, it's implicitly an object (even without explicit type)
+  if (!schema.properties) {
+    return false;
+  }
+
+  // If type is explicitly set and not 'object', skip it
+  if (schema.type && schema.type !== 'object') {
     return false;
   }
 
@@ -92,11 +101,12 @@ export function extractCustomErrorSchemas(spec: OpenAPIV3.Document): CustomError
         const errorKey =
           '$ref' in content.schema
             ? content.schema.$ref.replace('#/components/schemas/', '')
-            : `Error${statusCode}`;
+            : `error_${statusCode}`;
 
         if (!customErrors.has(errorKey)) {
           customErrors.set(errorKey, {
             statusCode,
+            schemaName: errorKey,
             schema,
             customProperties,
           });
@@ -207,6 +217,28 @@ export interface ${errorName} {${propertiesCode}
 }
 
 /**
+ * Generate a meaningful TypeScript interface name from schema name
+ *
+ * @param schemaName - Schema name from OpenAPI (e.g., 'error_400', 'orders.patch-400')
+ * @returns PascalCase interface name (e.g., 'Error400', 'OrdersPatch400')
+ */
+function generateErrorInterfaceName(schemaName: string): string {
+  // Split on dots, underscores, hyphens
+  const parts = schemaName.split(/[._-]+/);
+
+  // Convert each part to PascalCase and join
+  const pascalParts = parts.map(part => {
+    // Handle numeric suffixes (e.g., '400' stays as '400')
+    if (/^\d+$/.test(part)) {
+      return part;
+    }
+    return toPascalCase(part);
+  });
+
+  return pascalParts.join('');
+}
+
+/**
  * Generate error types file
  */
 export function generateErrorTypes(customErrors: CustomErrorSchema[]): string | null {
@@ -215,8 +247,8 @@ export function generateErrorTypes(customErrors: CustomErrorSchema[]): string | 
   }
 
   const errorTypes = customErrors
-    .map((errorSchema, index) => {
-      const errorName = `ApiErrorResponse${index === 0 ? '' : index + 1}`;
+    .map(errorSchema => {
+      const errorName = generateErrorInterfaceName(errorSchema.schemaName);
       return generateErrorTypeInterface(errorSchema, errorName);
     })
     .join('\n\n');
@@ -232,8 +264,8 @@ export function generateErrorTypes(customErrors: CustomErrorSchema[]): string | 
  *   await client.users.getUser({ id: '123' });
  * } catch (error) {
  *   if (error instanceof HttpError) {
- *     const errorData = error.response.data as ApiErrorResponse;
- *     console.error('Error code:', errorData.code);
+ *     const errorData = error.response.data as Error400;
+ *     console.error('Error details:', errorData.details);
  *   }
  * }
  */

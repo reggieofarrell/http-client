@@ -305,27 +305,37 @@ try {
 
 ### Type-Safe Error Response Data
 
-If your OpenAPI spec defines custom error response schemas, the generator creates TypeScript types for them. You can use these types to safely access error response data:
+If your OpenAPI spec defines custom error response schemas, the generator creates TypeScript types for them. Error interfaces are named based on their schema names (e.g., `error_400` → `Error400`, `orders.patch-400` → `OrdersPatch400`). You can use these types to safely access error response data:
 
 ```typescript
 import { HttpError } from '@reggieofarrell/http-client';
-import { ApiErrorResponse } from './api-client';
+import { Error400, Error500 } from './api-client/types/errors';
 
 try {
   const user = await client.users.getUser({ id: '123' });
 } catch (error) {
   if (error instanceof HttpError) {
     // Type-cast error.response.data for type safety
-    const errorData = error.response.data as ApiErrorResponse;
-
-    // Access custom error fields with full TypeScript support
-    console.error(`Error code: ${errorData.code}`);
-    if (errorData.details) {
-      console.error(`Details: ${errorData.details}`);
+    if (error.status === 400) {
+      const errorData = error.response.data as Error400;
+      console.error(`Error: ${errorData.name}`);
+      if (errorData.details) {
+        console.error(`Details: ${errorData.details}`);
+      }
+    } else if (error.status === 500) {
+      const errorData = error.response.data as Error500;
+      console.error(`Server error: ${errorData.name}`);
     }
   }
 }
 ```
+
+**Error Interface Naming:**
+- Schema names from OpenAPI specs are converted to PascalCase interface names
+- `error_400` → `Error400`
+- `error_500` → `Error500`
+- `orders.patch-400` → `OrdersPatch400`
+- `error_422` → `Error422`
 
 **Benefits:**
 - **Single error type to handle**: Only catch `HttpError` for API errors
