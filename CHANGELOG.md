@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.3.1](https://github.com/reggieofarrell/http-client/compare/v2.3.0...v2.3.1) (2025-10-31)
+
+
+### Features
+
+* enhance OpenAPI code generator with type-safe error handling and improved type extraction ([#12](https://github.com/reggieofarrell/http-client/issues/12)) ([b2d3d98](https://github.com/reggieofarrell/http-client/commit/b2d3d986b086022dd483c2d99b11bad33e20c325))
+
 ## [2.3.0](https://github.com/reggieofarrell/http-client/compare/v2.2.0...v2.3.0) (2025-10-31)
 
 
