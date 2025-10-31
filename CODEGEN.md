@@ -147,18 +147,15 @@ export class UsersRouteGroup {
   constructor(private client: HttpClient) {}
 
   async listUsers(): Promise<User[]> {
-    const { data } = await this.client.get<User[]>('/users');
-    return data;
+    return (await this.client.get<User[]>('/users')).data;
   }
 
-  async getUser(params: { id: string }): Promise<User> {
-    const { data } = await this.client.get<User>(`/users/${params.id}`);
-    return data;
+  async getUser(pathParams: { id: string }): Promise<User> {
+    return (await this.client.get<User>(`/users/:id`, { pathParams: pathParams })).data;
   }
 
   async createUser(body: CreateUserRequest): Promise<User> {
-    const { data } = await this.client.post<User>('/users', { data: body });
-    return data;
+    return (await this.client.post<User>('/users', { data: body })).data;
   }
 }
 ```
@@ -423,7 +420,7 @@ If a parameter name conflicts with a TypeScript reserved keyword, the generator 
 
 ### Path Parameters
 
-Path parameters are extracted and typed:
+Path parameters are automatically extracted and included in method signatures. The generator uses `pathParams` as the parameter name for clarity, and converts OpenAPI's `{paramName}` format to HttpClient's `:paramName` format. HttpClient automatically handles path parameter substitution:
 
 ```yaml
 /users/{userId}/posts/{postId}:
@@ -441,13 +438,19 @@ Path parameters are extracted and typed:
 
 Generates:
 ```typescript
-async getPost(params: { userId: string; postId: string }): Promise<Post> {
-  const { data } = await this.client.get<Post>(
-    `/users/${params.userId}/posts/${params.postId}`
-  );
-  return data;
+async getPost(pathParams: { userId: string; postId: string }): Promise<Post> {
+  return (await this.client.get<Post>(
+    `/users/:userId/posts/:postId`,
+    { pathParams: pathParams }
+  )).data;
 }
 ```
+
+**Notes:**
+- Path parameters use the `pathParams` parameter name (not `params`) for clarity
+- URLs use `:paramName` format instead of `{paramName}` format
+- HttpClient automatically substitutes path parameters - no manual URL construction needed
+- All path parameter values are automatically URL-encoded for safety
 
 ### Query Parameters
 
@@ -469,12 +472,10 @@ Query parameters are automatically included in requests:
 
 Generates:
 ```typescript
-async listUsers(params?: { limit?: number; offset?: number }): Promise<User[]> {
-  const fullUrl = '/users';
-  const { data } = await this.client.get<User[]>(fullUrl, {
-    params
-  });
-  return data;
+async listUsers(query?: { limit?: number; offset?: number }): Promise<User[]> {
+  return (await this.client.get<User[]>('/users', {
+    query: query
+  })).data;
 }
 ```
 

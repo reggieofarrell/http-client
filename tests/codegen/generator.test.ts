@@ -172,6 +172,144 @@ describe('Code Generator', () => {
       expect(usersContent).toContain('async deleteUser(');
     });
 
+    it('should use pathParams instead of params in method signatures', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'SampleApiClient',
+      });
+
+      const usersRouteFile = join(testOutputDir, 'routes', 'users.route.ts');
+      const usersContent = await fs.readFile(usersRouteFile, 'utf-8');
+
+      // Should use pathParams for path parameters
+      expect(usersContent).toContain('pathParams: {');
+      // Should not use old params pattern for path parameters
+      expect(usersContent).not.toMatch(/params:\s*\{\s*id:/);
+    });
+
+    it('should convert path parameters to :paramName format', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'SampleApiClient',
+      });
+
+      const usersRouteFile = join(testOutputDir, 'routes', 'users.route.ts');
+      const usersContent = await fs.readFile(usersRouteFile, 'utf-8');
+
+      // Should use :paramName format
+      expect(usersContent).toMatch(/\/users\/:id/);
+      // Should not use template literal substitution
+      expect(usersContent).not.toContain('${pathParams.');
+      expect(usersContent).not.toContain('${params.');
+    });
+
+    it('should pass pathParams to HttpClient request config', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'SampleApiClient',
+      });
+
+      const usersRouteFile = join(testOutputDir, 'routes', 'users.route.ts');
+      const usersContent = await fs.readFile(usersRouteFile, 'utf-8');
+
+      // Should pass pathParams in config
+      expect(usersContent).toContain('pathParams: pathParams');
+    });
+
+    it('should not use manual URL construction with template literals', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'SampleApiClient',
+      });
+
+      const usersRouteFile = join(testOutputDir, 'routes', 'users.route.ts');
+      const usersContent = await fs.readFile(usersRouteFile, 'utf-8');
+
+      // Should not use template literal URL construction
+      expect(usersContent).not.toContain('${pathParams.');
+      expect(usersContent).not.toContain('${params.');
+      // Should not build query strings manually
+      expect(usersContent).not.toContain('queryString');
+      expect(usersContent).not.toContain('queryPairs');
+    });
+
+    it('should use concise return pattern without destructuring', async () => {
+      await generateClient({
+        openApiSpec: sampleOpenApiSpec,
+        outputDir: testOutputDir,
+        clientName: 'SampleApiClient',
+      });
+
+      const usersRouteFile = join(testOutputDir, 'routes', 'users.route.ts');
+      const usersContent = await fs.readFile(usersRouteFile, 'utf-8');
+
+      // Should use concise return pattern: return (await ...).data;
+      expect(usersContent).toMatch(/return\s*\(await.*\)\.data;/);
+      // Should not use destructuring pattern
+      expect(usersContent).not.toContain('const { data } = await');
+      expect(usersContent).not.toContain('return data;');
+    });
+
+    it('should handle multiple path parameters correctly', async () => {
+      const specWithMultipleParams = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        servers: [{ url: 'https://api.example.com' }],
+        paths: {
+          '/users/{userId}/posts/{postId}': {
+            get: {
+              tags: ['posts'],
+              operationId: 'getPost',
+              parameters: [
+                {
+                  name: 'userId',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' },
+                },
+                {
+                  name: 'postId',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' },
+                },
+              ],
+              responses: {
+                '200': {
+                  description: 'Success',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      await generateClient({
+        openApiSpec: specWithMultipleParams,
+        outputDir: testOutputDir,
+        clientName: 'TestClient',
+      });
+
+      const postsRouteFile = join(testOutputDir, 'routes', 'posts.route.ts');
+      const postsContent = await fs.readFile(postsRouteFile, 'utf-8');
+
+      // Should use pathParams with both parameters
+      expect(postsContent).toContain('pathParams: { userId: string, postId: string }');
+      // Should convert both parameters in URL
+      expect(postsContent).toMatch(/\/users\/:userId\/posts\/:postId/);
+      // Should pass pathParams to HttpClient
+      expect(postsContent).toContain('pathParams: pathParams');
+    });
+
     it('should handle path-based grouping when no tags are present', async () => {
       // Create a spec without tags
       const specWithoutTags = {

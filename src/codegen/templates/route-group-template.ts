@@ -229,8 +229,8 @@ function generateMethodJSDoc(operation: ParsedOperation): string {
   const { method, path, methodName, pathParams, queryParams, requestBody, responses } = operation;
 
   const params = [
-    ...pathParams.map(param => `   * @param params.${param.name} - ${param.name} parameter`),
-    ...queryParams.map(param => `   * @param params.${param.name} - ${param.name} query parameter`),
+    ...pathParams.map(param => `   * @param pathParams.${param.name} - ${param.name} parameter`),
+    ...queryParams.map(param => `   * @param query.${param.name} - ${param.name} query parameter`),
   ];
 
   if (requestBody) {
@@ -266,7 +266,7 @@ function generateMethodSignature(
     const pathParamTypes = pathParams.map(
       param => `${param.name}: ${param.type}${param.required ? '' : '?'}`
     );
-    params.push(`params: { ${pathParamTypes.join(', ')} }`);
+    params.push(`pathParams: { ${pathParamTypes.join(', ')} }`);
   }
 
   // Add query parameters
@@ -326,47 +326,37 @@ function generateMethodSignature(
 function generateMethodBody(operation: ParsedOperation, returnType: string): string {
   const { method, path, pathParams, queryParams, requestBody } = operation;
 
-  // Build the URL template with path parameters
+  // Convert OpenAPI {param} format to HttpClient :param format
   let urlTemplate = path;
   for (const param of pathParams) {
-    urlTemplate = urlTemplate.replace(`{${param.name}}`, `\${params.${param.name}}`);
+    urlTemplate = urlTemplate.replace(`{${param.name}}`, `:${param.name}`);
   }
 
-  // Build query string and URL construction code
-  let urlConstruction = '';
+  // Build request config options
+  const configOptions: string[] = [];
+  if (pathParams.length > 0) {
+    configOptions.push('pathParams: pathParams');
+  }
   if (queryParams.length > 0) {
-    // When we have query params, we need to construct the URL first, then add query string
-    const queryPairs = queryParams.map(
-      param => `query?.${param.name} ? \`${param.name}=\${query.${param.name}}\` : ''`
-    );
-    urlConstruction = `\n    const url = \`${urlTemplate}\`;\n    const queryString = [${queryPairs.join(', ')}].filter(Boolean).join('&');\n    const fullUrl = queryString ? \`\${url}?\${queryString}\` : url;`;
-  } else {
-    // If no query params, just use the URL template directly
-    urlConstruction = `\n    const fullUrl = \`${urlTemplate}\`;`;
+    configOptions.push('query: query');
   }
-
-  // Build request options
-  const requestOptions: string[] = [];
   if (requestBody) {
-    requestOptions.push('data: body');
+    configOptions.push('data: body');
   }
 
-  const optionsString = requestOptions.length > 0 ? `, { ${requestOptions.join(', ')} }` : '';
+  const optionsString = configOptions.length > 0 ? `, { ${configOptions.join(', ')} }` : '';
 
   // Generate the request call using the return type from method signature
   const methodLower = method.toLowerCase();
-  const requestCall = `this.client.${methodLower}<${returnType}>(fullUrl${optionsString})`;
+  const requestCall = `this.client.${methodLower}<${returnType}>(\`${urlTemplate}\`${optionsString})`;
 
   // Build the method body
   // For void return types (204 No Content), don't return data
   if (returnType === 'void') {
-    return `${urlConstruction}
-    await ${requestCall};`;
+    return `    await ${requestCall};`;
   }
 
-  return `${urlConstruction}
-    const { data } = await ${requestCall};
-    return data;`;
+  return `    return (await ${requestCall}).data;`;
 }
 
 /**
