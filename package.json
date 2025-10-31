@@ -1,6 +1,6 @@
 {
   "name": "@reggieofarrell/http-client",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "A lightweight HTTP client for both the server and browser built on `xior` with retry functionality, written in TypeScript",
   "author": "Reggie O'Farrell",
   "license": "0BSD",
