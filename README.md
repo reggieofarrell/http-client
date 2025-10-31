@@ -170,6 +170,114 @@ const { data } = await client.get('/endpoint', {
 
 **Note**: Per-request retry configuration leverages xior's built-in error-retry plugin options that are applied at the request level.
 
+### Path Parameters
+
+You can use path parameters in URLs by defining them with the `:paramName` format and providing values via the `pathParams` config option. Path parameter values are automatically URL-encoded for safety.
+
+#### Basic Usage
+
+```typescript
+// Single path parameter
+const { data } = await client.get('/users/:userId', {
+  pathParams: { userId: '123' }
+});
+// Results in: /users/123
+```
+
+#### Multiple Path Parameters
+
+```typescript
+// Multiple path parameters
+const { data } = await client.get('/users/:userId/posts/:postId', {
+  pathParams: { userId: '123', postId: '456' }
+});
+// Results in: /users/123/posts/456
+```
+
+#### Path Parameters with All HTTP Methods
+
+Path parameters work with all HTTP methods:
+
+```typescript
+// GET request
+const { data } = await client.get('/users/:userId', {
+  pathParams: { userId: '123' }
+});
+
+// POST request
+const { data } = await client.post('/users/:userId/posts', { title: 'New Post' }, {
+  pathParams: { userId: '123' }
+});
+
+// PUT request
+const { data } = await client.put('/users/:userId/posts/:postId', { title: 'Updated' }, {
+  pathParams: { userId: '123', postId: '456' }
+});
+
+// PATCH request
+const { data } = await client.patch('/users/:userId', { name: 'John' }, {
+  pathParams: { userId: '123' }
+});
+
+// DELETE request
+const { data } = await client.delete('/users/:userId/posts/:postId', {
+  pathParams: { userId: '123', postId: '456' }
+});
+```
+
+#### URL Encoding
+
+Path parameter values are automatically URL-encoded, so special characters are handled safely:
+
+```typescript
+// Special characters are automatically encoded
+const { data } = await client.get('/users/:userId', {
+  pathParams: { userId: 'user@example.com' }
+});
+// Results in: /users/user%40example.com
+```
+
+#### Number Values
+
+You can pass numbers as path parameter values - they'll be automatically converted to strings:
+
+```typescript
+const { data } = await client.get('/posts/:postId', {
+  pathParams: { postId: 12345 }
+});
+// Results in: /posts/12345
+```
+
+#### Error Handling
+
+If you provide a URL with path parameters but don't provide the corresponding values, an error will be thrown:
+
+```typescript
+// This will throw an error
+try {
+  await client.get('/users/:userId', {});
+} catch (error) {
+  // Error: Missing required path parameters: userId. Provide values via pathParams config.
+}
+```
+
+#### Combining with Other Config Options
+
+Path parameters can be combined with other configuration options:
+
+```typescript
+const { data } = await client.get('/users/:userId/posts/:postId', {
+  pathParams: { userId: '123', postId: '456' },
+  headers: {
+    'X-Custom-Header': 'value'
+  },
+  timeout: 5000,
+  retryConfig: {
+    retries: 3
+  }
+});
+```
+
 ### Timeout Configuration
 
 The `HttpClient` supports timeout configuration through Xior's built-in timeout functionality. You can set timeouts globally for all requests or per-request.

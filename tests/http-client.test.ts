@@ -185,6 +185,315 @@ describe('HttpClient', () => {
     });
   });
 
+  describe('Path Parameters', () => {
+    test('substitutes single path parameter', async () => {
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.data).toEqual({ userId: '123' });
+      expect(response.request.status).toBe(200);
+    });
+
+    test('substitutes multiple path parameters', async () => {
+      mock.onGet('/users/123/posts/456').reply(200, { userId: '123', postId: '456' });
+
+      const response = await client.get('/users/:userId/posts/:postId', {
+        pathParams: { userId: '123', postId: '456' },
+      });
+
+      expect(response.data).toEqual({ userId: '123', postId: '456' });
+    });
+
+    test('URL-encodes path parameter values', async () => {
+      // Special characters should be URL-encoded
+      mock.onGet('/users/user%40example.com').reply(200, { userId: 'user@example.com' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: 'user@example.com' },
+      });
+
+      expect(response.data).toEqual({ userId: 'user@example.com' });
+    });
+
+    test('handles numeric path parameter values', async () => {
+      mock.onGet('/posts/12345').reply(200, { postId: 12345 });
+
+      const response = await client.get('/posts/:postId', {
+        pathParams: { postId: 12345 },
+      });
+
+      expect(response.data).toEqual({ postId: 12345 });
+    });
+
+    test('throws error when path parameter is missing', async () => {
+      await expect(
+        client.get('/users/:userId', {
+          // pathParams not provided
+        })
+      ).rejects.toThrow('Missing required path parameters: userId');
+    });
+
+    test('throws error when multiple path parameters are missing', async () => {
+      await expect(
+        client.get('/users/:userId/posts/:postId', {
+          // pathParams not provided
+        })
+      ).rejects.toThrow('Missing required path parameters');
+    });
+
+    test('throws error when specific path parameter is missing from pathParams', async () => {
+      await expect(
+        client.get('/users/:userId/posts/:postId', {
+          pathParams: { userId: '123' }, // postId missing
+        })
+      ).rejects.toThrow('Missing required path parameter: postId');
+    });
+
+    test('works with POST requests', async () => {
+      const payload = { title: 'New Post' };
+      mock.onPost('/users/123/posts').reply(201, { ...payload, userId: '123' });
+
+      const response = await client.post('/users/:userId/posts', payload, {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.data.userId).toBe('123');
+      expect(response.request.status).toBe(201);
+    });
+
+    test('works with PUT requests', async () => {
+      const payload = { title: 'Updated Post' };
+      mock.onPut('/users/123/posts/456').reply(200, { ...payload, userId: '123', postId: '456' });
+
+      const response = await client.put('/users/:userId/posts/:postId', payload, {
+        pathParams: { userId: '123', postId: '456' },
+      });
+
+      expect(response.data.userId).toBe('123');
+      expect(response.data.postId).toBe('456');
+    });
+
+    test('works with PATCH requests', async () => {
+      const payload = { name: 'John Doe' };
+      mock.onPatch('/users/123').reply(200, { ...payload, userId: '123' });
+
+      const response = await client.patch('/users/:userId', payload, {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.data.userId).toBe('123');
+    });
+
+    test('works with DELETE requests', async () => {
+      mock.onDelete('/users/123/posts/456').reply(204);
+
+      const response = await client.delete('/users/:userId/posts/:postId', {
+        pathParams: { userId: '123', postId: '456' },
+      });
+
+      expect(response.request.status).toBe(204);
+    });
+
+    test('works with HEAD requests', async () => {
+      mock.onHead('/users/123').reply(200, '', { 'content-length': '123' });
+
+      const response = await client.head('/users/:userId', {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.request.status).toBe(200);
+    });
+
+    test('works with OPTIONS requests', async () => {
+      mock.onOptions('/users/123').reply(200, '', { allow: 'GET, POST, OPTIONS' });
+
+      const response = await client.options('/users/:userId', {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.request.status).toBe(200);
+    });
+
+    test('works with direct request method', async () => {
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const response = await client.request(RequestType.GET, '/users/:userId', undefined, {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.data).toEqual({ userId: '123' });
+    });
+
+    test('handles path parameters with special characters', async () => {
+      // Test various special characters that need encoding
+      mock.onGet('/users/user%2Btest').reply(200, { userId: 'user+test' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: 'user+test' },
+      });
+
+      expect(response.data.userId).toBe('user+test');
+    });
+
+    test('handles path parameters with spaces', async () => {
+      // Spaces should be encoded as %20
+      mock.onGet('/users/user%20name').reply(200, { userId: 'user name' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: 'user name' },
+      });
+
+      expect(response.data.userId).toBe('user name');
+    });
+
+    test('handles path parameters with slashes', async () => {
+      // Slashes should be encoded
+      mock.onGet('/users/user%2Fsub').reply(200, { userId: 'user/sub' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: 'user/sub' },
+      });
+
+      expect(response.data.userId).toBe('user/sub');
+    });
+
+    test('handles empty string path parameter values', async () => {
+      mock.onGet('/users/').reply(200, { userId: '' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: '' },
+      });
+
+      expect(response.data.userId).toBe('');
+    });
+
+    test('works with path parameters and headers', async () => {
+      mock.onGet('/users/123').reply((config: any) => {
+        if (config.headers?.['X-Custom-Header'] === 'test-value') {
+          return [200, { userId: '123', header: 'test-value' }];
+        }
+        return [400, { error: 'Header mismatch' }];
+      });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: '123' },
+        headers: { 'X-Custom-Header': 'test-value' },
+      });
+
+      expect(response.data.header).toBe('test-value');
+    });
+
+    test('works with path parameters and retry config', async () => {
+      const retryClient = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: { retries: 1 },
+      });
+
+      const retryMock = new MockPlugin(retryClient.client);
+      retryMock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const response = await retryClient.get('/users/:userId', {
+        pathParams: { userId: '123' },
+        retryConfig: { retries: 2 },
+      });
+
+      expect(response.data.userId).toBe('123');
+      retryMock.restore();
+    });
+
+    test('works with path parameters and query parameters', async () => {
+      mock.onGet('/users/123').reply((config: any) => {
+        // Check if query params are preserved
+        if (config.params?.foo === 'bar') {
+          return [200, { userId: '123', query: 'bar' }];
+        }
+        return [400, { error: 'Query param mismatch' }];
+      });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: '123' },
+        params: { foo: 'bar' },
+      });
+
+      expect(response.data.query).toBe('bar');
+    });
+
+    test('handles path parameters at the beginning of URL', async () => {
+      mock.onGet('/123/posts').reply(200, { userId: '123' });
+
+      const response = await client.get('/:userId/posts', {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.data.userId).toBe('123');
+    });
+
+    test('handles path parameters at the end of URL', async () => {
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const response = await client.get('/users/:userId', {
+        pathParams: { userId: '123' },
+      });
+
+      expect(response.data.userId).toBe('123');
+    });
+
+    test('handles consecutive path parameters', async () => {
+      mock.onGet('/users/123/456').reply(200, { userId: '123', postId: '456' });
+
+      const response = await client.get('/users/:userId/:postId', {
+        pathParams: { userId: '123', postId: '456' },
+      });
+
+      expect(response.data.userId).toBe('123');
+      expect(response.data.postId).toBe('456');
+    });
+
+    test('handles path parameters with underscores in parameter names', async () => {
+      mock.onGet('/users/123').reply(200, { user_id: '123' });
+
+      const response = await client.get('/users/:user_id', {
+        pathParams: { user_id: '123' },
+      });
+
+      expect(response.data.user_id).toBe('123');
+    });
+
+    test('handles zero as path parameter value', async () => {
+      mock.onGet('/posts/0').reply(200, { postId: 0 });
+
+      const response = await client.get('/posts/:postId', {
+        pathParams: { postId: 0 },
+      });
+
+      expect(response.data.postId).toBe(0);
+    });
+
+    test('works when pathParams is empty object', async () => {
+      // URL without parameters should work fine with empty pathParams
+      mock.onGet('/users').reply(200, { success: true });
+
+      const response = await client.get('/users', {
+        pathParams: {},
+      });
+
+      expect(response.data.success).toBe(true);
+    });
+
+    test('does not substitute when URL has no path parameters', async () => {
+      mock.onGet('/users').reply(200, { success: true });
+
+      const response = await client.get('/users', {
+        pathParams: { userId: '123' }, // Provided but not used
+      });
+
+      expect(response.data.success).toBe(true);
+    });
+  });
+
   describe('Error Handling', () => {
     test('handles API error with message', async () => {
       const errorResponse = { message: 'Not Found', status: 404 };
