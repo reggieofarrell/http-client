@@ -183,8 +183,6 @@ export class HttpClient {
   retryConfig: HttpClientRetryConfig;
   idempotencyConfig: IdempotencyConfig;
   errorMessagePath: ErrorMessageExtractor;
-  private requestKeyCache: Map<string, string>;
-  private idempotencyCounter: number;
 
   constructor(config: HttpClientOptions) {
     const backoff = config.retryConfig?.backoff || 'exponential';
@@ -193,8 +191,6 @@ export class HttpClient {
 
     const defaultRetryConfig: HttpClientRetryConfig = {
       retries: 0,
-      retryDelay: (retryCount: number, error: XiorError, _requestConfig: XiorRequestConfig) =>
-        this.getRetryDelay(retryCount, error, backoff, delayFactor, 'none'),
       onRetry: (requestConfig, error, retryCount) => {
         if (this.debug) {
           console.log(
@@ -253,8 +249,6 @@ export class HttpClient {
     this.retryConfig = config.retryConfig!;
     this.idempotencyConfig = idempotencyConfig;
     this.errorMessagePath = config.errorMessagePath || 'data.message';
-    this.requestKeyCache = new Map();
-    this.idempotencyCounter = 0;
 
     const client = xior.create({
       ...config.xiorConfig,
@@ -265,17 +259,7 @@ export class HttpClient {
     if (this.retryConfig.retries && this.retryConfig.retries > 0) {
       const pluginOptions: any = {
         retryTimes: this.retryConfig.retries,
-        retryInterval: (count: number, config: XiorRequestConfig, error: XiorError) => {
-          return this.retryConfig.retryDelay
-            ? this.retryConfig.retryDelay(count, error, config)
-            : this.getRetryDelay(
-                count,
-                error,
-                backoff,
-                delayFactor,
-                this.retryConfig.backoffJitter || 'none'
-              );
-        },
+        retryInterval: this.buildRetryInterval(),
       };
 
       if (this.retryConfig.onRetry) {
@@ -290,6 +274,28 @@ export class HttpClient {
     }
 
     this.client = client;
+  }
+
+  /**
+   * Builds a retryInterval function for xior's error-retry plugin.
+   * If a custom `retryDelay` is provided (either via `overrides` or the instance's
+   * `retryConfig`), it is used verbatim and fully bypasses the built-in backoff/jitter
+   * calculation. Otherwise the delay is computed from the effective backoff, delayFactor,
+   * and backoffJitter (per-request overrides take precedence over instance-level config).
+   */
+  private buildRetryInterval(overrides?: HttpClientRetryConfig) {
+    return (count: number, cfg: XiorRequestConfig, error: XiorError): number => {
+      const retryDelay = overrides?.retryDelay ?? this.retryConfig.retryDelay;
+      if (retryDelay) {
+        return retryDelay(count, error, cfg);
+      }
+
+      const backoff = overrides?.backoff ?? this.retryConfig.backoff!;
+      const delayFactor = overrides?.delayFactor ?? this.retryConfig.delayFactor!;
+      const backoffJitter = overrides?.backoffJitter ?? this.retryConfig.backoffJitter ?? 'none';
+
+      return this.getRetryDelay(count, error, backoff, delayFactor, backoffJitter);
+    };
   }
 
   private getRetryDelay(
@@ -442,32 +448,15 @@ export class HttpClient {
     return substitutedUrl;
   }
 
-  private generateRequestSignature(method: RequestType, url: string, data?: any): string {
-    // Create a unique signature for the request based on method, URL, and data
-    const dataString = data ? JSON.stringify(data) : '';
-    return `${method}:${url}:${dataString}`;
-  }
-
+  /**
+   * Generates a fresh idempotency key. Uses `crypto.randomUUID()` when available
+   * (Node 19+/modern browsers), falling back to a timestamp + random suffix otherwise.
+   */
   private generateIdempotencyKey(): string {
-    // Fast counter-based key generation
-    return `${Date.now()}-${(++this.idempotencyCounter).toString(36)}`;
-  }
-
-  private getOrCreateIdempotencyKey(signature: string): string {
-    // Check if we already have a key for this request (retry scenario)
-    if (this.requestKeyCache.has(signature)) {
-      return this.requestKeyCache.get(signature)!;
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
     }
-
-    // Generate new key for new request
-    const key = this.generateIdempotencyKey();
-    this.requestKeyCache.set(signature, key);
-    return key;
-  }
-
-  private clearIdempotencyKey(signature: string): void {
-    // Remove key from cache after successful request
-    this.requestKeyCache.delete(signature);
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   /**
@@ -512,26 +501,14 @@ export class HttpClient {
 
     // Handle per-request retry config by mapping it to xior's error-retry plugin options
     if (config.retryConfig) {
-      const perRequestRetryConfig = {
-        ...this.retryConfig,
-        ...config.retryConfig,
-      };
-
-      const backoff = perRequestRetryConfig.backoff || this.retryConfig.backoff!;
-      const delayFactor = perRequestRetryConfig.delayFactor || this.retryConfig.delayFactor!;
-      const backoffJitter =
-        perRequestRetryConfig.backoffJitter || this.retryConfig.backoffJitter || 'none';
+      const perRequestRetryConfig = config.retryConfig;
 
       // Map our config to xior's error-retry plugin options
       if (perRequestRetryConfig.retries !== undefined) {
         config.retryTimes = perRequestRetryConfig.retries;
       }
 
-      config.retryInterval = (count: number, cfg: XiorRequestConfig, error: XiorError) => {
-        return perRequestRetryConfig.retryDelay
-          ? perRequestRetryConfig.retryDelay(count, error, cfg)
-          : this.getRetryDelay(count, error, backoff, delayFactor, backoffJitter);
-      };
+      config.retryInterval = this.buildRetryInterval(perRequestRetryConfig);
 
       if (perRequestRetryConfig.onRetry !== undefined) {
         config.onRetry = perRequestRetryConfig.onRetry;
@@ -551,24 +528,20 @@ export class HttpClient {
     };
 
     if (mergedIdempotencyConfig.enabled && mergedIdempotencyConfig.methods?.includes(requestType)) {
-      // Check if manual idempotency key is provided
-      if (config.idempotencyKey) {
-        config.headers = {
-          ...config.headers,
-          [mergedIdempotencyConfig.headerName!]: config.idempotencyKey,
-        };
-      } else {
-        // Generate or retrieve cached idempotency key
-        const requestSignature = this.generateRequestSignature(requestType, url, data);
-        const idempotencyKey = mergedIdempotencyConfig.keyGenerator
+      // A manual key takes precedence; otherwise generate a fresh key for this call
+      // (a custom `keyGenerator` if provided, or the built-in generator otherwise).
+      // To reuse the same key across your own manual retries, pass `idempotencyKey` explicitly -
+      // automatic retries (via `retryConfig`) already reuse this same request/header internally.
+      const idempotencyKey = config.idempotencyKey
+        ? config.idempotencyKey
+        : mergedIdempotencyConfig.keyGenerator
           ? mergedIdempotencyConfig.keyGenerator()
-          : this.getOrCreateIdempotencyKey(requestSignature);
+          : this.generateIdempotencyKey();
 
-        config.headers = {
-          ...config.headers,
-          [mergedIdempotencyConfig.headerName!]: idempotencyKey,
-        };
-      }
+      config.headers = {
+        ...config.headers,
+        [mergedIdempotencyConfig.headerName!]: idempotencyKey,
+      };
     }
 
     delete config.idempotencyKey;
@@ -603,12 +576,6 @@ export class HttpClient {
       }
     } catch (err) {
       this.errorHandler(err, requestType, url);
-    }
-
-    // Clear idempotency key after successful request
-    if (mergedIdempotencyConfig.enabled && mergedIdempotencyConfig.methods?.includes(requestType)) {
-      const requestSignature = this.generateRequestSignature(requestType, url, data);
-      this.clearIdempotencyKey(requestSignature);
     }
 
     // Call afterResponse middleware hook for successful responses
