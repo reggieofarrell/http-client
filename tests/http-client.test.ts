@@ -34,7 +34,6 @@ describe('HttpClient', () => {
       expect(client.name).toBe('HttpClient');
       expect(client.retryConfig).toEqual({
         retries: 0,
-        retryDelay: expect.any(Function),
         onRetry: expect.any(Function),
         delayFactor: 500,
         backoff: 'exponential',
@@ -57,7 +56,6 @@ describe('HttpClient', () => {
       expect(client.name).toBe('CustomClient');
       expect(client.retryConfig).toEqual({
         retries: 5,
-        retryDelay: expect.any(Function),
         onRetry: expect.any(Function),
         delayFactor: 500,
         backoff: 'exponential',
@@ -902,6 +900,41 @@ describe('HttpClient', () => {
       });
 
       expect(client.retryConfig.backoffJitter).toBe('none');
+    });
+
+    test('instance-level backoffJitter is actually wired into the retry interval (regression)', () => {
+      // Regression test: previously the constructor always installed a default
+      // `retryDelay` closure that hardcoded jitter to 'none', so `backoffJitter`
+      // was silently ignored regardless of what was configured here.
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: { retries: 3, delayFactor: 1000, backoff: 'exponential', backoffJitter: 'full' },
+      });
+
+      const retryInterval = (client as any).buildRetryInterval();
+      const mockError: any = { response: null };
+
+      const delays = Array.from({ length: 10 }, () => retryInterval(1, {}, mockError));
+
+      // With real full jitter, delays for retryCount=1 should be spread across
+      // [0, 1000) rather than always resolving to the deterministic 1000ms value.
+      expect(delays.every(d => d >= 0 && d <= 1000)).toBe(true);
+      expect(new Set(delays).size).toBeGreaterThan(1);
+    });
+
+    test('per-request backoffJitter override is actually wired into the retry interval (regression)', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: { retries: 3, delayFactor: 1000, backoff: 'exponential', backoffJitter: 'none' },
+      });
+
+      const retryInterval = (client as any).buildRetryInterval({ backoffJitter: 'full' });
+      const mockError: any = { response: null };
+
+      const delays = Array.from({ length: 10 }, () => retryInterval(1, {}, mockError));
+
+      expect(delays.every(d => d >= 0 && d <= 1000)).toBe(true);
+      expect(new Set(delays).size).toBeGreaterThan(1);
     });
 
     test('applies full jitter to exponential backoff', () => {
@@ -2261,7 +2294,7 @@ describe('HttpClient', () => {
 
     describe('Per-Request Retry Configuration', () => {
       test('uses custom retryDelay function when provided', async () => {
-        const customRetryDelay = jest.fn(() => 1000);
+        const customRetryDelay = jest.fn(() => 1);
 
         const client = new HttpClient({
           baseURL: 'https://api.example.com',
@@ -2282,10 +2315,17 @@ describe('HttpClient', () => {
           // Expected to fail
         }
 
-        // The custom retryDelay function is used internally by the retry plugin
-        // We verify the client was created with the custom function
-        expect(client.retryConfig.retryDelay).toBeDefined();
+        // The instance-level retryConfig should be untouched by a per-request override.
+        expect(client.retryConfig.retryDelay).toBeUndefined();
         mock.restore();
+
+        // Directly verify the per-request retryInterval wiring actually invokes the
+        // custom retryDelay (the mock harness above can't observe real retry attempts,
+        // since MockPlugin resolves synthetic error statuses rather than rejecting).
+        const mockError: any = { response: null };
+        const retryInterval = (client as any).buildRetryInterval({ retryDelay: customRetryDelay });
+        retryInterval(1, {}, mockError);
+        expect(customRetryDelay).toHaveBeenCalledWith(1, mockError, {});
       });
 
       test('uses default retryDelay when custom one is not provided', async () => {
