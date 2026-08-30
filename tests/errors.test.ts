@@ -394,12 +394,17 @@ describe('errors', () => {
       expect(classification.isRetriable).toBe(true);
     });
 
-    test('classifies unknown errors', () => {
+    test('classifies unclassifiable errors as retriable (regression)', () => {
+      // A bare error with no response, no `.request` marker, and no timeout/serialization/
+      // abort signal is exactly what a raw, unwrapped fetch() failure looks like (fetch()
+      // itself never attaches `.request`) - it's still a network-layer failure, and
+      // HttpClient.processError's fallback throws a retriable NetworkError for it, so this
+      // must agree rather than silently refusing to retry.
       const error = { message: 'Unknown error' };
       const classification = classifyErrorForRetry(error);
 
       expect(classification.type).toBe('unknown');
-      expect(classification.isRetriable).toBe(false);
+      expect(classification.isRetriable).toBe(true);
     });
   });
 

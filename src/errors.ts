@@ -552,10 +552,15 @@ export function classifyErrorForRetry(error: any): ErrorClassification {
     };
   }
 
-  // Unknown error type
+  // No response and no `.request` marker - this is what a genuine, unwrapped fetch()
+  // failure looks like (a native TypeError from fetch() itself never gets a `.request`
+  // property attached, unlike an already-wrapped XiorError). This is still a network-layer
+  // failure and matches what HttpClient.processError's fallback actually throws for it -
+  // a NetworkError, retriable by default - so treat it the same way here rather than
+  // silently refusing to retry it.
   return {
     type: 'unknown',
-    isRetriable: false,
+    isRetriable: true,
   };
 }
 
@@ -580,8 +585,12 @@ export function isSerializationError(error: any): boolean {
     return true;
   }
 
-  // Check for specific error types
-  if (error.name === 'SyntaxError' || error.name === 'TypeError') {
+  // Check for specific error types. Note: TypeError is deliberately excluded here -
+  // fetch() itself rejects with a plain TypeError for every network-layer failure
+  // (offline, DNS failure, connection refused/reset, CORS block, mixed-content block)
+  // in both browsers and Node's undici, so treating TypeError as a serialization
+  // signature misclassifies the most common transport failure as non-retriable.
+  if (error.name === 'SyntaxError') {
     return true;
   }
 
