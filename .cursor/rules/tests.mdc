@@ -66,3 +66,51 @@ Concretely:
   the private `buildRetryInterval()` directly and invoke the returned function - see the
   "instance-level backoffJitter is actually wired..." regression tests in
   `tests/http-client.test.ts` for the pattern.
+
+## Testing a transport that bypasses xior/fetch entirely (`src/transports/**`)
+
+The real-upload-progress feature (`@reggieofarrell/http-client/upload-progress`) had to be a
+first-class, internally-registered `HttpClient` feature rather than a standalone xior plugin a
+consumer bolts on themselves, for the exact same reason as the `MockPlugin` gotcha above: xior
+plugins wrap onion-style, and `HttpClient`'s own retry plugin would always end up registered
+*after* (more outward than) anything a consumer adds post-construction, so retry could never see
+the progress plugin's real transport at all. `HttpClient`'s constructor registers it itself,
+deterministically, before the conditional retry-plugin registration - see
+`src/transports/upload-progress-plugin.ts`'s module doc. If a future feature needs to compose with
+`retryConfig` this way, it needs the same treatment, not a bolt-on plugin.
+
+This also means `MockPlugin` cannot exercise `src/transports/**` at all: the progress plugin
+bypasses fetch/xior entirely once triggered, so it never reaches (or is reached by) `MockPlugin`.
+Use a real local server instead, same as the retry-integration pattern above - see
+`tests/http-client-upload-progress-node-integration.test.ts`.
+
+For the browser-side transport (`XMLHttpRequest`-based), use a per-test-file
+`/** @jest-environment jsdom */` docblock (doesn't affect `jest.config.js`'s global
+`testEnvironment: 'node'` for the rest of the suite) - jsdom's `XMLHttpRequest` makes genuine
+network requests, so this still points at a real local server, not a mock. Two hard-won gotchas
+from doing this, both confirmed directly rather than assumed:
+
+- **The jsdom version bundled with `jest-environment-jsdom@29` has no Fetch API support at all** -
+  `Response`/`Headers`/`fetch`/`TextEncoder`/`TextDecoder` are all `undefined` in it (only
+  `FormData`/`XMLHttpRequest` are implemented). Code that constructs real `Response`/`Headers`
+  instances (this project deliberately does, rather than duck-typing them - see
+  `src/transports/shared.ts`) needs these polyfilled in the test file via `undici` (what Node's own
+  global fetch is built from) - `TextEncoder`/`TextDecoder` first, via `require()` (not `import`) in
+  written order, since `undici`'s own module bootstrap needs them already global and ESM import
+  hoisting can't guarantee that. Don't try to also polyfill `fetch` itself for this jsdom version -
+  `undici`'s real `fetch` doesn't work inside jsdom's sandbox (it fails on jsdom-incompatible
+  internals; its own error message suggests switching to the `node` environment). A request with no
+  progress callback (the plugin's passthrough branch, falling through to xior's real fetch-based
+  adapter) can't be exercised in this jsdom file for that reason - it's platform-agnostic logic
+  already covered by the Node-side test instead.
+- **`instanceof Error` is not reliable across realm/VM-context boundaries** - a real Node system
+  error (e.g. a genuine `ECONNREFUSED` from `node:net`) can be constructed in a different realm than
+  the code checking it, and Jest's own sandboxed test environments are exactly this kind of
+  boundary: a real `ECONNREFUSED`'s `instanceof Error` came back `false` inside a test, even though
+  the object was a completely normal `Error` with a message/stack/`.code`. Confirmed directly with
+  Node's own `vm` module, not just observed once. Use `Object.prototype.toString.call(value) ===
+  '[object Error]'` instead (reads the internal `[[Class]]`/`Symbol.toStringTag`, not the prototype
+  chain) - see `isErrorLike()` in `src/transports/shared.ts`. This matters beyond Jest: any runtime
+  that isolates realms (some serverless/edge/worker environments, iframes) could hit the same thing
+  in production, so prefer this check over `instanceof Error` for genuinely arbitrary/external error
+  values generally, not only in tests.

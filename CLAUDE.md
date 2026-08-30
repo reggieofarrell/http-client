@@ -20,6 +20,12 @@ middleware-style hooks — while staying a thin wrapper, not a framework.
 - `src/logger.ts` — small console logging helpers used when `debug: true`.
 - `src/index.ts` — the public export surface. Treat additions here as a real API commitment; this
   library re-exports most of its internals, so keep that list deliberate, not automatic.
+- `src/upload-progress.ts` / `src/upload-progress.browser.ts` + `src/transports/**` — the real
+  (non-simulated) upload-progress feature, a separate opt-in subpath
+  (`@reggieofarrell/http-client/upload-progress`) that bypasses fetch entirely for a specific
+  request. Two entry-point variants exist (universal + browser-only) specifically so a browser
+  bundler never has to resolve Node's `http`/`https`/`stream` — see "Platform-specific code and
+  bundlers" below before changing anything here.
 
 There is no build-time code generator, no bundled CLI, and no framework-specific integration — keep
 it that way (see "Working mode" below).
@@ -44,6 +50,28 @@ it that way (see "Working mode" below).
   misclassified as retriable) were only confirmed — and only fully understood — by doing this.
   Discard the throwaway repro once a permanent regression test replaces it.
 - See `.rulesync/rules/tests.md` for how that applies specifically to this repo's test suite.
+- **A runtime `typeof X !== 'undefined'` check does not make platform-specific code
+  bundler-safe.** The original upload-progress design had one file statically import both the
+  Node transport (`node:http`/`node:https`/`node:stream`) and the browser transport, branching at
+  runtime on `typeof XMLHttpRequest`. This seemed safe — the Node-only code never *executes* in a
+  browser — but a bundler must still *resolve* every static import in a file regardless of which
+  branch runs, so bundling that file for a browser target failed outright (confirmed directly with
+  a real `esbuild --platform=browser` bundle: four unresolvable `node:*` import errors). The actual
+  fix was package.json's `"browser"` conditional export, resolving to a genuinely separate file
+  (`upload-progress.browser.ts`) with zero static reference to the Node-only file at the source
+  level — see `src/transports/upload-progress-plugin.browser.ts`'s module doc. If a future feature
+  needs platform-specific code, assume a bundler will need to resolve *every* file's imports
+  up front and design the file boundary accordingly — don't rely on a runtime guard alone.
+- **For a resource that's unsafe to reuse (e.g. a stream body across a retry), track that
+  explicitly rather than inferring it from another system's async cleanup state.** The
+  stream-retry guard originally relied on Node's `readableEnded`/`destroyed` becoming true by the
+  time a retry re-invoked the transport. Empirically, this turned out to hold reliably (20/20
+  adversarial trials of a real mid-upload connection reset, retried immediately with
+  `delayFactor: 0`) because `stream.pipeline()` happens to destroy a failed pipeline's streams
+  synchronously-enough — but that's relying on Node-internal timing, for a bug whose failure mode
+  is silent data corruption if it's ever wrong. Track the actual invariant directly instead (a
+  `WeakSet` marking a stream the moment real bytes are first read from it) so the guard is correct
+  by construction, not by observed timing.
 
 ## Commands
 

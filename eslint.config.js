@@ -35,6 +35,11 @@ module.exports = [
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
+      // TypeScript's own compiler already checks this far more accurately (it understands
+      // ambient type namespaces like `NodeJS`/`BufferEncoding` and lib-scoped globals like
+      // `XMLHttpRequest` from a per-file `/// <reference lib="dom" />`, which plain no-undef
+      // does not) - this is the standard recommendation for TS + ESLint setups.
+      'no-undef': 'off',
     },
   },
   // Prettier configuration (should be last to override formatting rules)
