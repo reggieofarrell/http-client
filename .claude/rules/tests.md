@@ -1,0 +1,53 @@
+---
+paths:
+  - tests/**/*.test.ts
+---
+# Test conventions
+
+This repo's test suite (`tests/*.test.ts`, jest + `ts-jest`) has a specific, hard-learned failure
+mode: a test that calls a private method directly can pass while the actual wiring between that
+method and the public API is broken. Two real bugs hid behind exactly this pattern:
+
+- The retry-jitter bug: `getRetryDelay(...)` was tested directly and always behaved correctly in
+  isolation, but the code path that was supposed to call it with the *live* `backoffJitter` setting
+  never actually ran (a default closure always shadowed it). No test exercised a real client
+  configured with `backoffJitter` end-to-end through the public API.
+- The idempotency cache leak: the cache-clearing logic was tested by manually seeding
+  `(client as any).requestKeyCache`, not by making a real request through a subclass that mutates
+  the body in `beforeRequest` (the exact pattern the README taught) and checking the cache was
+  actually empty afterward.
+
+**Prefer exercising the real integration path.** Use `xior/plugins/mock` (`MockPlugin`) and go
+through the public `client.get/post/put/patch/delete/head/options()` methods, the same way a
+consumer would. Reserve direct calls to a private method (`(client as any).someMethod(...)`) for
+genuinely low-level unit coverage of pure logic (e.g. `getRetryDelay`'s jitter math, `parseRetryAfter`
+edge cases) — and even then, pair it with at least one test that proves the *wiring* into that
+method from the public API actually works, not just the method's own math.
+
+When fixing a bug found through empirical investigation (see the root rule's "Working mode"),
+write the regression test using the same public-API path you used to reproduce it, not a
+re-implementation that only calls the internals you believe are responsible.
+
+## `MockPlugin` gotcha: a mocked bad status does not trigger a real retry
+
+`mock.onGet/onPost/...().reply(500, data)` **resolves** the request promise with a `status: 500`
+response - it does not reject. The conversion of a non-2xx status into a thrown error happens
+outside the plugin chain (in this library's own `request()`/`processError`), which is *after* the
+error-retry plugin's own try/catch already ran. That plugin's catch block therefore never sees
+these mocked bad-status responses, so `retryConfig.retries`/`onRetry`/`enableRetry` never actually
+fire against them - even with `retries: 3` configured, `mock.history.<method>` will show exactly 1
+call.
+
+Concretely:
+
+- A test asserting `await expect(client.get(...)).rejects.toThrow(HttpError)` against
+  `mock.onGet(...).reply(500, ...)` is still valid - it correctly verifies error classification -
+  but it proves nothing about retry behavior, no matter what `retryConfig` the client was built
+  with. Don't read "the request eventually rejected" as "retries were attempted."
+- To exercise a real rejection the error-retry plugin actually sees (and therefore genuinely
+  test retry attempts/counts), use one of `MockPlugin`'s handlers that truly rejects -
+  `.networkError()`, `.timeout()`, `.abortRequest()` - not `.reply(<4xx/5xx>, ...)`.
+- To test the retry-*delay* computation itself (backoff/jitter wiring) without fighting this
+  limitation at all, call the private `buildRetryInterval()` directly and invoke the returned
+  function - see the "instance-level backoffJitter is actually wired..." regression tests in
+  `tests/http-client.test.ts` for the pattern.
