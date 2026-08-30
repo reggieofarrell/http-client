@@ -34,26 +34,40 @@ When fixing a bug found through empirical investigation (see the root rule's "Wo
 write the regression test using the same public-API path you used to reproduce it, not a
 re-implementation that only calls the internals you believe are responsible.
 
-## `MockPlugin` gotcha: a mocked bad status does not trigger a real retry
+## `MockPlugin` gotcha: it cannot prove a real retry attempt count, at all
 
 `mock.onGet/onPost/...().reply(500, data)` **resolves** the request promise with a `status: 500`
-response - it does not reject. The conversion of a non-2xx status into a thrown error happens
-outside the plugin chain (in this library's own `request()`/`processError`), which is *after* the
-error-retry plugin's own try/catch already ran. That plugin's catch block therefore never sees
-these mocked bad-status responses, so `retryConfig.retries`/`onRetry`/`enableRetry` never actually
-fire against them - even with `retries: 3` configured, `mock.history.<method>` will show exactly 1
-call.
+response rather than rejecting - the conversion of a non-2xx status into a thrown error happens
+outside the plugin chain (in this library's own `request()`/`processError`), after the error-retry
+plugin's own try/catch already ran, so that plugin never sees it. That much is fixable by using a
+handler that genuinely rejects instead - `.networkError()`, `.timeout()`, `.abortRequest()`.
+
+But the deeper problem is structural, and genuinely-rejecting handlers don't fix it either:
+`HttpClient`'s constructor registers the error-retry plugin during construction, and `MockPlugin`
+can only attach to an *already-constructed* xior instance (`new MockPlugin(client.client)`) -
+meaning in every test in this suite, the retry plugin is necessarily registered before `MockPlugin`.
+xior's plugins wrap each other in registration order (onion-style), so whichever plugin registers
+**last** wraps outermost and is the only one that can catch and retry a rejection from something
+registered before it. Registered in our order, the retry plugin never gets a chance to see
+`MockPlugin`'s rejection at all - confirmed directly with a raw xior instance: same
+`errorRetryPlugin` options, `MockPlugin` registered first → retries genuinely fire (call count 4
+for `retries: 3`); registered second (our order) → call count 1, no retry, regardless of which
+`MockPlugin` handler is used.
 
 Concretely:
 
-- A test asserting `await expect(client.get(...)).rejects.toThrow(HttpError)` against
-  `mock.onGet(...).reply(500, ...)` is still valid - it correctly verifies error classification -
-  but it proves nothing about retry behavior, no matter what `retryConfig` the client was built
-  with. Don't read "the request eventually rejected" as "retries were attempted."
-- To exercise a real rejection the error-retry plugin actually sees (and therefore genuinely
-  test retry attempts/counts), use one of `MockPlugin`'s handlers that truly rejects -
-  `.networkError()`, `.timeout()`, `.abortRequest()` - not `.reply(<4xx/5xx>, ...)`.
-- To test the retry-*delay* computation itself (backoff/jitter wiring) without fighting this
-  limitation at all, call the private `buildRetryInterval()` directly and invoke the returned
-  function - see the "instance-level backoffJitter is actually wired..." regression tests in
+- **No test built on `MockPlugin` can ever prove `retryConfig.retries` produces multiple real
+  attempts against an actual `HttpClient` instance** - not with `.reply()`, not with
+  `.networkError()`/`.timeout()`/`.abortRequest()` either. A test asserting
+  `await expect(client.get(...)).rejects.toThrow(HttpError)` is still valid for verifying error
+  *classification*, but don't read "the request eventually rejected" as "retries were attempted."
+- **To actually verify retry attempt counts, use a real local server instead** - spin one up with
+  Node's built-in `http.createServer()`, point `baseURL` at it, and count real requests received
+  server-side. This has no second plugin competing for registration order, so it exercises the
+  exact same code path production traffic does. See
+  `tests/http-client-retry-integration.test.ts` for the pattern (always-fails, fails-then-recovers,
+  `retries: 0`, and non-retriable-4xx cases).
+- To test the retry-*delay* computation itself (backoff/jitter wiring) without any of this, call
+  the private `buildRetryInterval()` directly and invoke the returned function - see the
+  "instance-level backoffJitter is actually wired..." regression tests in
   `tests/http-client.test.ts` for the pattern.
