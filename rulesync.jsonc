@@ -1,0 +1,27 @@
+{
+  "$schema": "https://github.com/dyoshikawa/rulesync/releases/latest/download/config-schema.json",
+
+  // Single source of truth for AI agent instruction files lives in `.rulesync/rules/*.md` and
+  // `.rulesync/skills/*/SKILL.md`. Edit those, then run `npm run rules:sync` to regenerate the
+  // tool-native files below. `npm run rules:check` (rulesync generate --check) fails if the
+  // generated files are stale; it runs in the pre-push hook and PR CI. Generated outputs are
+  // never touched by prettier/eslint (see check:format/lint) and must not be hand-edited.
+  //
+  // rulesync docs: https://github.com/dyoshikawa/rulesync
+  //
+  // Generated per target (do not hand-edit):
+  //   cursor     -> .cursor/rules/*.mdc, .cursor/skills/*/SKILL.md
+  //   claudecode -> CLAUDE.md (root), .claude/rules/*.md, .claude/skills/*/SKILL.md
+  //   agentsmd   -> AGENTS.md (root) + .agents/memories/*.md
+  //   codexcli   -> AGENTS.md (root, shared with agentsmd) + .agents/skills/*/SKILL.md
+  //
+  // The root rule (.rulesync/rules/overview.md) deliberately does not target `cursor` — Cursor
+  // reads AGENTS.md natively, so emitting the root there too would load it twice.
+  //
+  // Skills, not commands: Codex CLI only supports rulesync "commands" in global mode (not
+  // project mode) but has full project-mode "skills" support, and Cursor/Claude Code support
+  // skills just as well as commands — so skills is the one feature that reaches all three
+  // targets. See `.rulesync/skills/*/SKILL.md`.
+  "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
+  "features": ["rules", "skills"],
+}

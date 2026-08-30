@@ -1,29 +1,77 @@
 name: Publish Package to NPM
+
+# Publishes @reggieofarrell/http-client to npm when a GitHub Release is published.
+# Auth uses npm Trusted Publishing (OIDC) — no long-lived NPM_TOKEN secret.
+# See: https://docs.npmjs.com/trusted-publishers/
+#
+# One-time setup required before this can succeed (see README "Releasing"):
+#   1. Create a GitHub Environment named `npm` in repo settings (Settings > Environments).
+#   2. From an authenticated npm CLI session:
+#        npm trust github --repository reggieofarrell/http-client --file release.yml \
+#          --environment npm --allow-publish
+#   Trusted Publishing requires npm >= 11.16, which is why this pins .nvmrc (Node 24).
+
 on:
   release:
     types: [published]
+
+permissions:
+  # Required so the npm CLI can exchange a short-lived GitHub OIDC token
+  # for publish rights. Without this, Trusted Publishing cannot authenticate.
+  id-token: write
+  contents: read
+
 jobs:
-  build:
+  publish:
+    name: Test, build, and publish
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 15
+    # Fail-closed: this Environment must exist (with `npm trust github` registered against it)
+    # before a release event, or the publish step below has no way to authenticate.
+    environment: npm
+
     steps:
-      - uses: actions/checkout@v4
-      # Setup .npmrc file to publish to npm
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
-          registry-url: "https://registry.npmjs.org"
+          # Pin via .nvmrc so publish matches local/dev and CI. Trusted Publishing (OIDC)
+          # requires npm >= 11.16, which .nvmrc's Node version ships.
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
       - name: Install dependencies
         run: npm ci
-      - name: Run Linter
+
+      - name: Format check
+        run: npm run check:format
+
+      - name: Lint
         run: npm run lint
-      - name: Run Tests
+
+      - name: Rules in sync (rulesync)
+        run: npm run rules:check
+
+      - name: Type-check
+        run: npm run test:types
+
+      - name: Tests
         run: npm test -- --coverage
+
       - name: Build
         run: npm run build
-      - name: Publish to NPM
+
+      - name: Verify build output
+        run: npm run check:build
+
+      - name: Runtime dependency audit
+        run: npm run check:audit
+
+      # No NODE_AUTH_TOKEN — the npm CLI detects the OIDC environment and
+      # authenticates via Trusted Publishing. Provenance is attached automatically
+      # for public packages from public repos.
+      - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}

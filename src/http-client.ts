@@ -7,9 +7,11 @@ import {
   TimeoutError,
   HttpError,
   SerializationError,
+  AbortError,
   classifyHttpError,
   isTimeoutError,
   isSerializationError,
+  isAbortError,
   buildErrorMetadata,
   buildNetworkErrorMetadata,
   buildHttpErrorResponse,
@@ -738,7 +740,7 @@ export class HttpClient {
     error: any,
     reqType: RequestType,
     url: string
-  ): HttpError | NetworkError | TimeoutError | SerializationError {
+  ): HttpError | NetworkError | TimeoutError | SerializationError | AbortError {
     // Build request config for metadata (common to all error types)
     const requestConfig: XiorRequestConfig = {
       method: reqType,
@@ -792,6 +794,12 @@ export class HttpClient {
         } else {
           console.log(`[${this.name}] ${reqType} ${url} error.message : ${error.message}`);
         }
+      }
+
+      if (isAbortError(error)) {
+        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
+        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [aborted] : ${error.message || 'Request aborted'}`;
+        return new AbortError(message, metadata, error);
       }
 
       if (isSerializationError(error)) {

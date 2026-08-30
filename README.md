@@ -432,6 +432,8 @@ try {
 }
 ```
 
+A deliberate abort is wrapped in an `AbortError` (see [Error Handling](#error-handling)), which is **not retriable by default** - `retryConfig` will not automatically retry a request you just cancelled.
+
 #### Aborting Multiple Requests
 
 ```typescript
@@ -1257,7 +1259,7 @@ class CustomErrorClient extends HttpClient {
 The `HttpClient` provides comprehensive error handling with stable error types:
 
 ```typescript
-import { HttpClient, NetworkError, TimeoutError, HttpError, SerializationError, HttpErrorCategory } from '@reggieofarrell/http-client';
+import { HttpClient, NetworkError, TimeoutError, HttpError, SerializationError, AbortError, HttpErrorCategory } from '@reggieofarrell/http-client';
 
 try {
   const { data } = await client.get('/endpoint');
@@ -1288,13 +1290,16 @@ try {
   } else if (error instanceof SerializationError) {
     console.log('Serialization Error:', error.message);
     console.log('Retriable:', error.isRetriable);
+  } else if (error instanceof AbortError) {
+    console.log('Request was aborted:', error.metadata.error.message);
+    console.log('Retriable:', error.isRetriable);
   }
 }
 ```
 
 #### Error Types
 
-The HTTP client provides four stable error types:
+The HTTP client provides five stable error types:
 
 1. **`HttpError`** - HTTP 4xx/5xx responses
    - Properties: `status`, `category`, `statusText`, `response`, `isRetriable`
@@ -1311,6 +1316,10 @@ The HTTP client provides four stable error types:
 4. **`SerializationError`** - Request/response serialization failures
    - Properties: `code`, `isRetriable`, `metadata`
    - Not retriable by default
+
+5. **`AbortError`** - Request deliberately cancelled via `AbortController`/`AbortSignal`
+   - Properties: `code`, `isRetriable`, `metadata` (includes abort details), `name` is `'AbortError'`
+   - Not retriable by default - retrying a request you just cancelled would defeat the purpose
 
 #### Error Metadata
 
@@ -1434,6 +1443,10 @@ const client = new HttpClient({
         return false; // Never retry serialization errors
       }
 
+      if (classification.type === 'abort') {
+        return false; // Never retry a deliberate cancellation
+      }
+
       // Fallback to the classification's retriability
       return classification.isRetriable;
     }
@@ -1447,7 +1460,7 @@ The `classifyErrorForRetry` function returns an `ErrorClassification` object:
 
 ```typescript
 interface ErrorClassification {
-  type: 'network' | 'timeout' | 'http' | 'serialization' | 'unknown';
+  type: 'network' | 'timeout' | 'http' | 'serialization' | 'abort' | 'unknown';
   isRetriable: boolean;
   status?: number;           // For HTTP errors
   category?: HttpErrorCategory; // For HTTP errors
@@ -1455,7 +1468,7 @@ interface ErrorClassification {
 ```
 
 This gives you access to:
-- **Error type detection** - Know if it's a network, timeout, HTTP, or serialization error
+- **Error type detection** - Know if it's a network, timeout, HTTP, serialization, or abort error
 - **Pre-calculated retriability** - Use our smart defaults with `classification.isRetriable`
 - **HTTP context** - Access status codes and error categories for HTTP errors
 - **Type safety** - Work with familiar `HttpErrorCategory` enum values
@@ -1586,16 +1599,18 @@ const client = new HttpClient({
 
 ## Breaking Changes
 
-### Unreleased - Codegen removal, idempotency simplification, retry jitter fix
+### Unreleased - Codegen removal, idempotency simplification, retry jitter and abort fixes, xior upgrade
 
 **Removed:**
 - The OpenAPI SDK Code Generator (`@reggieofarrell/http-client/codegen`) and its peer dependencies (`openapi-typescript`, `@apidevtools/json-schema-ref-parser`, `swagger2openapi`, `yaml`). It was a build-time tool unrelated to the runtime HTTP client; if you still need it, generate your client with a standalone codegen tool of your choice, or vendor the last published version.
 
 **Changed:**
 - **Idempotency key generation no longer caches keys across separate calls.** A fresh key is generated for every `request()` call by default (via `crypto.randomUUID()`, or a custom `keyGenerator`). Automatic retries (`retryConfig`) are unaffected - they happen inside a single call and already reuse the same key. If you catch an error yourself and call the request method again later, pass the same `idempotencyKey` explicitly to guarantee the server sees it as one operation. The previous automatic cross-call caching was based on `JSON.stringify`-ing the request body, which silently broke (colliding keys, or keys that never got cleaned up) for `beforeRequest`-mutated payloads and non-JSON bodies like `FormData` - the explicit-key pattern above is the reliable replacement.
+- Upgraded `xior` from `^0.7.8` to `^0.8.4`. No API changes required on our side; see [xior's changelog](https://github.com/suhaotian/xior/blob/main/CHANGELOG.md) if you use xior plugins or options directly.
 
 **Fixed:**
 - `backoffJitter` ('full', 'equal', 'decorrelated') was silently ignored at both the instance and per-request level - retries always used a deterministic delay regardless of this setting. It now actually applies. If you were relying on the old (undocumented) deterministic behavior while setting `backoffJitter`, your retry delays will now vary as the README has always described.
+- A deliberately aborted request (`AbortController.abort()`) was misclassified as a `NetworkError` with `isRetriable: true` - meaning `retryConfig` could automatically retry a request you just cancelled, and `error.name` was never actually `'AbortError'` despite the README's documented example checking for it. Aborts are now wrapped in a new `AbortError` type (`error.name === 'AbortError'`, `isRetriable: false` by default). If you were checking `error instanceof NetworkError` to detect aborts, check `error instanceof AbortError` instead.
 
 ### v2.0.0 - Stable Error Types
 
@@ -1641,6 +1656,21 @@ try {
   }
 }
 ```
+
+## Releasing
+
+1. Bump the version and update `CHANGELOG.md` from Conventional Commits since the last release:
+   `npm run release` (or `release:patch` / `release:minor` / `release:major` to force a specific
+   bump). Use `release:test` first for a dry run.
+2. Push the commit and tag: `git push --follow-tags origin main`.
+3. Create the GitHub Release, which triggers `.github/workflows/release.yml`'s publish job:
+   `npm run release:publish` (wraps `gh release create v$npm_package_version --generate-notes`).
+
+Publishing to npm uses [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) —
+there is no long-lived npm token in CI. This requires a one-time setup per maintainer machine/repo:
+a GitHub Environment named `npm` (Settings → Environments) and, from an authenticated npm CLI
+session, `npm trust github --repository reggieofarrell/http-client --file release.yml --environment
+npm --allow-publish`.
 
 ## License
 

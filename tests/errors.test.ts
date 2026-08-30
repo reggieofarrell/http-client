@@ -3,10 +3,12 @@ import {
   NetworkError,
   TimeoutError,
   SerializationError,
+  AbortError,
   HttpErrorCategory,
   classifyHttpError,
   determineHttpErrorRetriability,
   isTimeoutError,
+  isAbortError,
   classifyNetworkErrorType,
   buildErrorMetadata,
   buildNetworkErrorMetadata,
@@ -130,7 +132,29 @@ describe('errors', () => {
     });
   });
 
+  describe('isAbortError', () => {
+    test('detects a native AbortError by name', () => {
+      const error = { name: 'AbortError', message: 'The user aborted a request.' };
+      expect(isAbortError(error)).toBe(true);
+    });
+
+    test('does not confuse a timeout with an abort', () => {
+      const error = { name: 'XiorTimeoutError', message: 'timeout of 5000ms exceeded' };
+      expect(isAbortError(error)).toBe(false);
+    });
+
+    test('returns false for errors without a name', () => {
+      expect(isAbortError({})).toBe(false);
+      expect(isAbortError(null)).toBe(false);
+    });
+  });
+
   describe('classifyNetworkErrorType', () => {
+    test('classifies an abort', () => {
+      const error = { name: 'AbortError', message: 'The user aborted a request.' };
+      expect(classifyNetworkErrorType(error)).toBe('aborted');
+    });
+
     test('classifies ECONNREFUSED', () => {
       const error = { code: 'ECONNREFUSED' };
       expect(classifyNetworkErrorType(error)).toBe('connection_refused');
@@ -328,6 +352,14 @@ describe('errors', () => {
   });
 
   describe('classifyErrorForRetry', () => {
+    test('classifies abort errors as not retriable', () => {
+      const error = { name: 'AbortError', message: 'The user aborted a request.' };
+      const classification = classifyErrorForRetry(error);
+
+      expect(classification.type).toBe('abort');
+      expect(classification.isRetriable).toBe(false);
+    });
+
     test('classifies timeout errors', () => {
       const error = { code: 'ETIMEDOUT' };
       const classification = classifyErrorForRetry(error);
@@ -522,6 +554,56 @@ describe('errors', () => {
         expect(error.isRetriable).toBe(false);
         expect(error.metadata).toBe(metadata);
         expect(error.cause).toBe(cause);
+      });
+    });
+
+    describe('AbortError', () => {
+      test('creates AbortError with all properties', () => {
+        const metadata = {
+          request: {
+            method: 'GET',
+            url: '/test',
+            baseURL: 'https://api.example.com',
+            headers: {},
+            timestamp: new Date().toISOString(),
+          },
+          clientName: 'TestClient',
+          error: {
+            message: 'The user aborted a request.',
+            type: 'aborted',
+          },
+        };
+
+        const cause = new Error('The user aborted a request.');
+        cause.name = 'AbortError';
+        const error = new AbortError('Request aborted', metadata, cause, true);
+
+        expect(error.message).toBe('Request aborted');
+        expect(error.code).toBe('ABORT_ERROR');
+        expect(error.isRetriable).toBe(true);
+        expect(error.metadata).toBe(metadata);
+        expect(error.cause).toBe(cause);
+      });
+
+      test('creates AbortError with default retriability', () => {
+        const metadata = {
+          request: {
+            method: 'GET',
+            url: '/test',
+            baseURL: 'https://api.example.com',
+            headers: {},
+            timestamp: new Date().toISOString(),
+          },
+          clientName: 'TestClient',
+          error: {
+            message: 'The user aborted a request.',
+            type: 'aborted',
+          },
+        };
+
+        const error = new AbortError('Request aborted', metadata);
+
+        expect(error.isRetriable).toBe(false); // Default value - don't retry a deliberate cancel
       });
     });
 

@@ -10,4 +10,12 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+  coverageThreshold: {
+    global: {
+      statements: 98,
+      branches: 90,
+      functions: 95,
+      lines: 98,
+    },
+  },
 };
