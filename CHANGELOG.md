@@ -5,13 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.1.0](https://github.com/reggieofarrell/http-client/compare/v3.0.0...v3.1.0) (2026-08-30)
-
-
-### Documentation
-
-* finalize v3.0.0 breaking changes section with migration guide ([#25](https://github.com/reggieofarrell/http-client/issues/25)) ([5b5ce7f](https://github.com/reggieofarrell/http-client/commit/5b5ce7fbd0a7df5ba868496e4b4ed8af458d5c4b))
-
 ## [3.0.0](https://github.com/reggieofarrell/http-client/compare/v2.3.1...v3.0.0) (2026-08-30)
 
 
