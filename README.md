@@ -93,7 +93,7 @@ interface HttpClientOptions {
    * error message from an HTTP error response.
    * @default 'data.message'
    */
-  errorMessagePath?: string | ((errorResponse: any) => string | undefined);
+  errorMessageExtractor?: string | ((errorResponse: any) => string | undefined);
 }
 ```
 
@@ -1401,13 +1401,13 @@ Different APIs structure their error responses differently. The `HttpClient` all
 // String path with dot notation for nested properties
 const client = new HttpClient({
   baseURL: 'https://api.example.com',
-  errorMessagePath: 'data.error.detail', // Extract from data.error.detail
+  errorMessageExtractor: 'data.error.detail', // Extract from data.error.detail
 });
 
 // Function-based extraction for complex logic
 const client = new HttpClient({
   baseURL: 'https://api.example.com',
-  errorMessagePath: (response) => {
+  errorMessageExtractor: (response) => {
     // Handle multiple possible error formats
     if (response.data?.error?.message) {
       return response.data.error.message;
@@ -1426,14 +1426,14 @@ const client = new HttpClient({
 ##### Per-Request Override
 
 ```typescript
-// Override error message path for specific requests
+// Override the error message extractor for specific requests
 const response = await client.get('/endpoint', {
-  errorMessagePath: 'data.errors.0.message' // Extract first error message
+  errorMessageExtractor: 'data.errors.0.message' // Extract first error message
 });
 
 // Use function for per-request custom logic
 const response = await client.post('/endpoint', data, {
-  errorMessagePath: (response) => {
+  errorMessageExtractor: (response) => {
     return response.data?.validation_errors?.[0]?.message;
   }
 });
@@ -1445,13 +1445,13 @@ const response = await client.post('/endpoint', data, {
 // Simple string path, e.g. GitHub-style `{ message: '...' }` responses
 const githubClient = new HttpClient({
   baseURL: 'https://api.github.com',
-  errorMessagePath: 'data.message'
+  errorMessageExtractor: 'data.message'
 });
 
 // Function-based extraction for APIs that use more than one error shape
 const complexClient = new HttpClient({
   baseURL: 'https://api.complex.com',
-  errorMessagePath: (response) => {
+  errorMessageExtractor: (response) => {
     // Try different paths based on response structure
     if (response.data?.error?.message) {
       return response.data.error.message;
@@ -1472,7 +1472,7 @@ const complexClient = new HttpClient({
 When the configured path doesn't contain a message or the function returns `undefined`, the client falls back to the HTTP status text:
 
 ```typescript
-// If errorMessagePath doesn't find a message, falls back to statusText
+// If errorMessageExtractor doesn't find a message, falls back to statusText
 try {
   await client.get('/endpoint');
 } catch (error) {
@@ -1504,6 +1504,7 @@ const client = new HttpClient({
 **Changed:**
 - **Idempotency key generation no longer caches keys across separate calls.** A fresh key is generated for every `request()` call by default (via `crypto.randomUUID()`, or a custom `keyGenerator`). Automatic retries (`retryConfig`) are unaffected - they happen inside a single call and already reuse the same key. If you catch an error yourself and call the request method again later, pass the same `idempotencyKey` explicitly to guarantee the server sees it as one operation. The previous automatic cross-call caching was based on `JSON.stringify`-ing the request body, which silently broke (colliding keys, or keys that never got cleaned up) for `beforeRequest`-mutated payloads and non-JSON bodies like `FormData` - the explicit-key pattern above is the reliable replacement.
 - Upgraded `xior` from `^0.7.8` to `^0.8.4`. No API changes required on our side; see [xior's changelog](https://github.com/suhaotian/xior/blob/main/CHANGELOG.md) if you use xior plugins or options directly.
+- Renamed the `errorMessagePath` config option (instance-level and per-request) to `errorMessageExtractor`, matching the `ErrorMessageExtractor` type it was already typed as - it always accepted a function as well as a dot-notation string, so "path" was misleading. Rename any usages; behavior is unchanged.
 
 **Fixed:**
 - `backoffJitter` ('full', 'equal', 'decorrelated') was silently ignored at both the instance and per-request level - retries always used a deterministic delay regardless of this setting. It now actually applies. If you were relying on the old (undocumented) deterministic behavior while setting `backoffJitter`, your retry delays will now vary as the README has always described.
