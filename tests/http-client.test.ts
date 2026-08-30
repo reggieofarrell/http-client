@@ -1316,6 +1316,28 @@ describe('HttpClient', () => {
       customMock.restore();
     });
 
+    // Regression test: an errorHandler override that returns normally instead of throwing used
+    // to fall through to `req!.data` with `req` still undefined, producing a confusing
+    // "Cannot read properties of undefined (reading 'data')" with no indication of the real
+    // cause. request() now detects this specifically and throws a clear configuration error.
+    test('errorHandler that returns instead of throwing produces a clear configuration error', async () => {
+      class SwallowingClient extends HttpClient {
+        protected errorHandler() {
+          // Intentionally does not throw
+        }
+      }
+
+      const customClient = new SwallowingClient({ baseURL: 'https://api.example.com' });
+
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow(
+        /errorHandler must throw - it returned normally/
+      );
+      customMock.restore();
+    });
+
     test('handles beforeRequest hook', async () => {
       class CustomClient extends HttpClient {
         public beforeRequest = jest.fn();

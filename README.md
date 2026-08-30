@@ -1108,6 +1108,13 @@ const { data } = await client.post('/users', { name: 'John' });
 
 The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method, which has been refactored to provide better flexibility for child classes.
 
+**`errorHandler` must always throw.** There's no fallback response for a failed request to resolve
+with, so an override must end every code path in a `throw` - either `throw
+this.processError(error, reqType, url)`, a custom error built from it, or (per the "Basic Error
+Handling Override" example below) `super.errorHandler(error, reqType, url)`. If an override returns
+normally instead, `request()` detects this and throws a clear configuration error rather than
+producing a broken response.
+
 ##### Basic Error Handling Override
 
 ```typescript
@@ -1664,6 +1671,7 @@ const client = new HttpClient({
 - `backoffJitter` ('full', 'equal', 'decorrelated') was silently ignored at both the instance and per-request level - retries always used a deterministic delay regardless of this setting. It now actually applies. If you were relying on the old (undocumented) deterministic behavior while setting `backoffJitter`, your retry delays will now vary as the README has always described.
 - A deliberately aborted request (`AbortController.abort()`) was misclassified as a `NetworkError` with `isRetriable: true` - meaning `retryConfig` could automatically retry a request you just cancelled, and `error.name` was never actually `'AbortError'` despite the README's documented example checking for it. Aborts are now wrapped in a new `AbortError` type (`error.name === 'AbortError'`, `isRetriable: false` by default). If you were checking `error instanceof NetworkError` to detect aborts, check `error instanceof AbortError` instead.
 - A genuine network failure was misclassified as a non-retriable `SerializationError` instead of a `NetworkError`. `fetch()` itself rejects with a plain `TypeError` for every network-layer failure (offline, DNS failure, connection refused/reset, CORS block, mixed-content block) in both browsers and Node's `undici`, and `isSerializationError` treated any `TypeError` as a serialization issue - so this was the single most common transient failure in practice, and it silently defeated `retryConfig` for it (the retry-evaluation fallback had a related bug: it required a `.request` property that a raw `fetch()` `TypeError` never has, so it wouldn't have retried even once misclassification was fixed). Both are fixed; a dropped connection or DNS failure is now a retriable `NetworkError`, matching the README's documented `instanceof NetworkError` pattern. If you had code specifically branching on `error instanceof SerializationError` to handle connectivity issues, switch it to `NetworkError`.
+- An `errorHandler` override that returned normally instead of throwing (nothing in the types or docs actually forbade this, even though every documented example throws) used to fall through to a confusing `Cannot read properties of undefined (reading 'data')` with no indication of the real cause. `request()` now detects this specifically and throws a clear configuration error pointing at the "Error Handling" section instead. If you have an `errorHandler` override that doesn't always throw, it was already broken - this only changes the error message you'll see.
 
 ### v2.0.0 - Stable Error Types
 
