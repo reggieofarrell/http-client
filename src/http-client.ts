@@ -458,7 +458,7 @@ export class HttpClient {
     }
 
     // Replace each :paramName with its URL-encoded value from pathParams
-    return url.replace(paramPattern, (_match, paramName: string) => {
+    return url.replaceAll(paramPattern, (_match, paramName: string) => {
       if (!(paramName in pathParams)) {
         throw new Error(
           `Missing required path parameter: ${paramName}. Provide value via pathParams.${paramName}`
