@@ -60,8 +60,11 @@ export interface NetworkErrorMetadata extends ErrorMetadata {
 
 /**
  * Response object for HTTP errors
+ * @typeParam TErrorBody - Shape of the response body, if known. Defaults to `unknown` so a
+ * caller must explicitly narrow it (e.g. `error.response.data as MyApiErrorBody`) rather than
+ * silently treating it as `any`.
  */
-export interface HttpErrorResponse {
+export interface HttpErrorResponse<TErrorBody = unknown> {
   /** HTTP status code */
   status: number;
   /** HTTP status text (e.g., "Not Found", "Internal Server Error") */
@@ -69,7 +72,7 @@ export interface HttpErrorResponse {
   /** Response headers */
   headers: Record<string, any>;
   /** Response body/data */
-  data: any;
+  data: TErrorBody;
 }
 
 /**
@@ -162,8 +165,15 @@ export class TimeoutError extends HttpClientError {
 
 /**
  * HTTP error - thrown when the server responds with a 4xx or 5xx status code
+ * @typeParam TErrorBody - Shape of the error response body, if known. Defaults to `unknown`.
+ * Not tied to any request method's type parameter - provide it yourself at the catch site.
+ *
+ * Note: plain `error instanceof HttpError` narrows `response.data` to `any`, not `unknown` -
+ * TypeScript substitutes `any` for a generic class's unspecified type parameters during
+ * `instanceof` narrowing, regardless of the class's own default. Use the `isHttpError<T>()`
+ * type guard below instead to actually get `response.data: T` (or `unknown` if you omit `T`).
  */
-export class HttpError extends HttpClientError {
+export class HttpError<TErrorBody = unknown> extends HttpClientError {
   /** HTTP status code */
   status: number;
   /** Error category for granular error handling */
@@ -171,7 +181,7 @@ export class HttpError extends HttpClientError {
   /** HTTP status text */
   statusText: string;
   /** Response object with headers and data */
-  response: HttpErrorResponse;
+  response: HttpErrorResponse<TErrorBody>;
 
   /**
    * Creates an instance of HttpError
@@ -189,7 +199,7 @@ export class HttpError extends HttpClientError {
     status: number,
     category: HttpErrorCategory,
     statusText: string,
-    response: HttpErrorResponse,
+    response: HttpErrorResponse<TErrorBody>,
     metadata: ErrorMetadata,
     cause?: any,
     isRetriable?: boolean
@@ -204,6 +214,35 @@ export class HttpError extends HttpClientError {
     this.statusText = statusText;
     this.response = response;
   }
+}
+
+/**
+ * Type guard for `HttpError` that also types its error response body.
+ *
+ * Prefer this over a plain `error instanceof HttpError` check when you want `response.data`
+ * typed as something other than `unknown` - TypeScript's `instanceof` narrowing against a
+ * generic class always resolves unspecified type parameters to `any`, so `instanceof HttpError`
+ * alone silently gives you an untyped `response.data` no matter what `HttpError`'s own default
+ * is.
+ * @param error - The value to check
+ * @returns true if `error` is an `HttpError`, narrowing it to `HttpError<TErrorBody>`
+ * @example
+ * ```typescript
+ * interface StripeErrorBody {
+ *   error: { message: string; type: string };
+ * }
+ *
+ * try {
+ *   await client.post('/charge', payload);
+ * } catch (error) {
+ *   if (isHttpError<StripeErrorBody>(error)) {
+ *     console.log(error.response.data.error.message); // typed
+ *   }
+ * }
+ * ```
+ */
+export function isHttpError<TErrorBody = unknown>(error: unknown): error is HttpError<TErrorBody> {
+  return error instanceof HttpError;
 }
 
 /**
@@ -453,7 +492,9 @@ export function buildNetworkErrorMetadata(
  * @param response - Xior response object
  * @returns HttpErrorResponse object
  */
-export function buildHttpErrorResponse(response: XiorResponse): HttpErrorResponse {
+export function buildHttpErrorResponse<TErrorBody = unknown>(
+  response: XiorResponse
+): HttpErrorResponse<TErrorBody> {
   return {
     status: response.status,
     statusText: response.statusText || '',
@@ -552,10 +593,15 @@ export function classifyErrorForRetry(error: any): ErrorClassification {
     };
   }
 
-  // Unknown error type
+  // No response and no `.request` marker - this is what a genuine, unwrapped fetch()
+  // failure looks like (a native TypeError from fetch() itself never gets a `.request`
+  // property attached, unlike an already-wrapped XiorError). This is still a network-layer
+  // failure and matches what HttpClient.processError's fallback actually throws for it -
+  // a NetworkError, retriable by default - so treat it the same way here rather than
+  // silently refusing to retry it.
   return {
     type: 'unknown',
-    isRetriable: false,
+    isRetriable: true,
   };
 }
 
@@ -580,8 +626,12 @@ export function isSerializationError(error: any): boolean {
     return true;
   }
 
-  // Check for specific error types
-  if (error.name === 'SyntaxError' || error.name === 'TypeError') {
+  // Check for specific error types. Note: TypeError is deliberately excluded here -
+  // fetch() itself rejects with a plain TypeError for every network-layer failure
+  // (offline, DNS failure, connection refused/reset, CORS block, mixed-content block)
+  // in both browsers and Node's undici, so treating TypeError as a serialization
+  // signature misclassifies the most common transport failure as non-retriable.
+  if (error.name === 'SyntaxError') {
     return true;
   }
 

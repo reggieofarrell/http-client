@@ -8,6 +8,7 @@ import {
   HttpErrorCategory,
   classifyErrorForRetry,
   isSerializationError,
+  isHttpError,
 } from '../src/errors';
 import MockPlugin from 'xior/plugins/mock';
 
@@ -609,6 +610,29 @@ describe('HttpClient', () => {
       });
 
       await expect(client.get('/network-error')).rejects.toThrow(NetworkError);
+    });
+
+    test('isHttpError narrows and types the error response body', async () => {
+      interface ApiErrorBody {
+        error: { detail: string };
+      }
+
+      const errorResponse: ApiErrorBody = { error: { detail: 'Validation failed for field X' } };
+      mock.onGet('/error').reply(400, errorResponse);
+
+      try {
+        await client.get('/error');
+        throw new Error('expected client.get to reject');
+      } catch (err) {
+        expect(isHttpError(err)).toBe(true);
+        expect(isHttpError('not an error')).toBe(false);
+
+        if (isHttpError<ApiErrorBody>(err)) {
+          // Compiles only because isHttpError<T> actually narrows response.data to T -
+          // a plain `err instanceof HttpError` check would leave it typed as `any`.
+          expect(err.response.data.error.detail).toBe('Validation failed for field X');
+        }
+      }
     });
 
     test('handles 500 server error', async () => {
@@ -2190,12 +2214,16 @@ describe('HttpClient', () => {
       expect(classification2.isRetriable).toBe(true);
     });
 
-    test('classifies unknown errors correctly', () => {
+    test('classifies unclassifiable errors as retriable (regression)', () => {
+      // A bare error with no response, no `.request` marker, and no timeout/serialization/
+      // abort signal is what a raw, unwrapped fetch() failure looks like - still a
+      // network-layer failure, so this must agree with the retriable NetworkError that
+      // HttpClient.processError's fallback actually throws for it.
       const error = { message: 'Unknown error' };
       const classification = classifyErrorForRetry(error);
 
       expect(classification.type).toBe('unknown');
-      expect(classification.isRetriable).toBe(false);
+      expect(classification.isRetriable).toBe(true);
     });
 
     test('prioritizes timeout detection over other patterns', () => {
