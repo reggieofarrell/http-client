@@ -4,6 +4,7 @@ import {
   TimeoutError,
   HttpError,
   SerializationError,
+  AbortError,
   HttpErrorCategory,
   classifyErrorForRetry,
   isSerializationError,
@@ -481,9 +482,13 @@ describe('HttpClient', () => {
         return [400, { error: 'Query param mismatch' }];
       });
 
-      const response = await client.post('/search', { query: 'test' }, {
-        query: { page: '1', perPage: '10' },
-      });
+      const response = await client.post(
+        '/search',
+        { query: 'test' },
+        {
+          query: { page: '1', perPage: '10' },
+        }
+      );
 
       expect(response.data.page).toBe(1);
       expect(response.data.perPage).toBe(10);
@@ -908,7 +913,12 @@ describe('HttpClient', () => {
       // was silently ignored regardless of what was configured here.
       const client = new HttpClient({
         baseURL: 'https://api.example.com',
-        retryConfig: { retries: 3, delayFactor: 1000, backoff: 'exponential', backoffJitter: 'full' },
+        retryConfig: {
+          retries: 3,
+          delayFactor: 1000,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
       });
 
       const retryInterval = (client as any).buildRetryInterval();
@@ -925,7 +935,12 @@ describe('HttpClient', () => {
     test('per-request backoffJitter override is actually wired into the retry interval (regression)', () => {
       const client = new HttpClient({
         baseURL: 'https://api.example.com',
-        retryConfig: { retries: 3, delayFactor: 1000, backoff: 'exponential', backoffJitter: 'none' },
+        retryConfig: {
+          retries: 3,
+          delayFactor: 1000,
+          backoff: 'exponential',
+          backoffJitter: 'none',
+        },
       });
 
       const retryInterval = (client as any).buildRetryInterval({ backoffJitter: 'full' });
@@ -2400,6 +2415,33 @@ describe('HttpClient', () => {
         });
 
         await expect(client.get('/timeout')).rejects.toThrow(TimeoutError);
+        mock.restore();
+      });
+
+      test('handles a deliberate abort distinctly from a network error (regression)', async () => {
+        // Regression test: a cancelled request used to be misclassified as a
+        // retriable NetworkError, contradicting the README's documented
+        // `error.name === 'AbortError'` check and risking an automatic retry
+        // of a request the caller just cancelled.
+        const client = new HttpClient({ baseURL: 'https://api.example.com' });
+        const mock = new MockPlugin(client.client);
+
+        mock.onGet('/abort').reply(() => {
+          const error = new Error('The user aborted a request.');
+          error.name = 'AbortError';
+          throw error;
+        });
+
+        await expect(client.get('/abort')).rejects.toThrow(AbortError);
+
+        try {
+          await client.get('/abort');
+        } catch (error: any) {
+          expect(error).toBeInstanceOf(AbortError);
+          expect(error.name).toBe('AbortError');
+          expect(error.isRetriable).toBe(false);
+          expect(classifyErrorForRetry(error).isRetriable).toBe(false);
+        }
         mock.restore();
       });
 

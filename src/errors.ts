@@ -207,6 +207,28 @@ export class HttpError extends HttpClientError {
 }
 
 /**
+ * Abort error - thrown when a request is deliberately cancelled via an AbortController/AbortSignal
+ * Not retriable by default: retrying a request the caller just cancelled would defeat the purpose.
+ */
+export class AbortError extends HttpClientError {
+  /**
+   * Creates an instance of AbortError
+   * @param message - Human-readable error message
+   * @param metadata - Diagnostic metadata including error details
+   * @param cause - The original error that caused this error
+   * @param isRetriable - Whether the error is retriable (defaults to false)
+   */
+  constructor(
+    message: string,
+    metadata: NetworkErrorMetadata,
+    cause?: any,
+    isRetriable: boolean = false
+  ) {
+    super(message, 'ABORT_ERROR', metadata, isRetriable, cause);
+  }
+}
+
+/**
  * Serialization error - thrown when request or response data cannot be serialized/deserialized
  */
 export class SerializationError extends HttpClientError {
@@ -292,6 +314,17 @@ export function determineHttpErrorRetriability(
 }
 
 /**
+ * Checks if an error is a deliberate abort (AbortController.abort() / AbortSignal),
+ * as distinct from a timeout - xior surfaces its own timeouts as a differently-named
+ * error, so this only matches a genuine caller-initiated cancellation.
+ * @param error - The error to check
+ * @returns true if the error indicates the request was aborted
+ */
+export function isAbortError(error: any): boolean {
+  return error?.name === 'AbortError';
+}
+
+/**
  * Checks if an error is a timeout error based on error code or message
  * @param error - The error to check
  * @returns true if the error indicates a timeout
@@ -327,6 +360,10 @@ export function isTimeoutError(error: any): boolean {
  */
 export function classifyNetworkErrorType(error: any): string {
   const code = error.code;
+
+  if (isAbortError(error)) {
+    return 'aborted';
+  }
 
   if (code === 'ECONNREFUSED') {
     return 'connection_refused';
@@ -430,7 +467,7 @@ export function buildHttpErrorResponse(response: XiorResponse): HttpErrorRespons
  */
 export interface ErrorClassification {
   /** The type of error detected */
-  type: 'network' | 'timeout' | 'http' | 'serialization' | 'unknown';
+  type: 'network' | 'timeout' | 'http' | 'serialization' | 'abort' | 'unknown';
   /** Whether the error should be retriable by default */
   isRetriable: boolean;
   /** HTTP status code (for HTTP errors) */
@@ -469,6 +506,14 @@ export interface ErrorClassification {
  * ```
  */
 export function classifyErrorForRetry(error: any): ErrorClassification {
+  // Check for a deliberate abort first - never retry a request the caller just cancelled
+  if (isAbortError(error)) {
+    return {
+      type: 'abort',
+      isRetriable: false,
+    };
+  }
+
   // Check for timeout errors first
   if (isTimeoutError(error)) {
     return {
