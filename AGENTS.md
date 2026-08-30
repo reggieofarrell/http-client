@@ -80,26 +80,68 @@ it that way (see "Working mode" below).
 - Test: `npm test` (jest, ~280 tests). Coverage gate: `npm test -- --coverage`
   (`jest.config.js` `coverageThreshold`).
 - Type-check: `npm run test:types`.
-- Lint / format: `npm run lint` (eslint), `npm run check:format` (prettier --check), `npm run
-  format` (prettier --write).
+- Lint / format: `npm run lint` (eslint, including fail-closed SonarJS on production `src/`),
+  `npm run check:format` (prettier --check), `npm run format` (prettier --write).
+- SonarQube: `npm run sonar:precheck` (changed files vs `origin/main`), `npm run sonar:rules`
+  (intersect server profile with `eslint-plugin-sonarjs`). See `docs/development/sonarqube.md`.
+  The server quality gate is **new-code-only**; Jest `coverageThreshold` remains the coverage
+  authority.
 - Full local gate (mirrors CI): `npm run check:format && npm run lint && npm run rules:check &&
-  npm run test:types && npm test -- --coverage && npm run build && npm run check:build && npm run
-  check:audit`.
+  npm run test:sonar-rules && npm run test:types && npm test -- --coverage && npm run build &&
+  npm run check:build && npm run check:audit`.
 
 ## Tooling
 
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook) — this drives
   `CHANGELOG.md` generation via `commit-and-tag-version` (config: `.versionrc.json`).
-- **Agent config:** authored once under `.rulesync/` (rules + skills; just `cut-release` and
-  `write-tests` as skills, not the broader workflow-content skill sets some projects have, like
-  ADRs or docs-site sync) and generated to Cursor, Claude Code, Codex CLI, and the `AGENTS.md`
-  standard via `npm run rules:sync`. Skills (not commands) so Codex CLI actually gets them — it
-  only supports rulesync's "commands" feature in global mode, not per-project. Never hand-edit
-  `.cursor/`, `.claude/`, `.agents/`, `AGENTS.md`, or `CLAUDE.md` — `npm run rules:check` (pre-push
-  + CI) fails on drift.
+- **Agent config:** authored once under `.rulesync/` (rules + skills; `cut-release`,
+  `write-tests`, and `fix-sonarqube-issues`) and generated to Cursor, Claude Code, Codex CLI, and
+  the `AGENTS.md` standard via `npm run rules:sync`. Skills (not commands) so Codex CLI actually
+  gets them — it only supports rulesync's "commands" feature in global mode, not per-project.
+  Never hand-edit `.cursor/`, `.claude/`, `.agents/`, `AGENTS.md`, or `CLAUDE.md` — `npm run
+  rules:check` (pre-push + CI) fails on drift.
+- **SonarQube:** layered gate (local SonarJS ESLint, fail-closed secret scans, skippable
+  changed-file precheck, CI scan via `Casadega-Development/action-workflows`). The server gate is
+  new-code-only. Do not put tokens in source, env files, command arguments, or logs.
 - **Releasing:** see the README's "Releasing" section — `npm run release[:patch|:minor|:major]`,
   push tags, `npm run release:publish` to cut the GitHub Release that triggers the OIDC npm publish
   in `.github/workflows/release.yml`.
 - **Node/npm version:** pinned via `.nvmrc`; `scripts/check-node-version.sh` (sourced from every
   Husky hook) enforces it locally and also checks npm is new enough to honor `.npmrc`'s
   `min-release-age` supply-chain cooldown.
+
+# Repository quality gates
+
+Use Conventional Commit messages (`feat:`, `fix:`, `docs:`, `refactor:`,
+`test:`, `chore:`, and related conventional types). Commitlint checks each
+local message.
+
+Husky hooks are part of the repository contract. Do not bypass them merely to
+make a commit or push complete. Diagnose a failing gate, fix the underlying
+problem, and rerun it. A deliberate emergency bypass is an accountable human
+decision, not a routine agent shortcut.
+
+Run the full local gate before handing off a change that should match CI
+(format, lint, RuleSync, SonarJS helper tests, types, coverage, build, audit):
+
+`npm run check:format && npm run lint && npm run rules:check && npm run test:sonar-rules && npm run test:types && npm test -- --coverage && npm run build && npm run check:build && npm run check:audit`
+
+Everyday pre-push still runs the lighter `rules:check` plus `npm test`.
+
+- The Jest `coverageThreshold` in `jest.config.js` is a ratchet. Never lower it
+  merely to make a change pass; add meaningful coverage or document an
+  intentional review. SonarQube's LCOV view is informational, not the coverage
+  authority.
+- Every active server rule implemented by `eslint-plugin-sonarjs` is an ESLint
+  error on production `src/`. The SonarQube server quality gate remains
+  authoritative for analyzers that cannot run locally and is **new-code-only**.
+- SonarQube secret scans are fail-closed. A finding or scanner failure blocks
+  the Git operation. The server-backed pre-push check may skip only when its
+  explicit status says prerequisites are unavailable; findings and analysis
+  failures still block.
+- Preserve the pre-commit, pre-push, and CI gates when changing quality tooling.
+  Do not narrow their coverage or downgrade blocking checks to warnings.
+
+Never put Sonar tokens in source files, committed environment files, command
+arguments, or logs. Follow `docs/development/sonarqube.md` for scanner setup,
+rule synchronization, CI implementation, and re-scan procedures.
