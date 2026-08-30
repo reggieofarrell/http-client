@@ -224,7 +224,7 @@ const { data } = await client.get('/users/:userId/posts/:postId', {
 // Results in: /users/user%40example.com/posts/456
 ```
 
-Path parameters work identically with every HTTP method and can be combined with any other request config (`headers`, `timeout`, `retryConfig`, `query`, etc.):
+Path parameters work identically with every HTTP method and can be combined with any other request config (`headers`, `timeout`, `retryConfig`, `params`, etc.):
 
 ```typescript
 const { data } = await client.post(
@@ -243,11 +243,11 @@ await client.get('/users/:userId', {});
 
 ### Query Parameters
 
-You can pass query parameters using either the `query` or `params` property - both are aliases for the same thing (`query` is a more intuitive name; `params` matches the XiorRequestConfig API), and both work identically with every HTTP method. If both are provided on the same request, `query` takes precedence and `params` is ignored.
+Pass query parameters via the `params` property (inherited from `XiorRequestConfig` - matches axios's own convention, which xior keeps for compatibility):
 
 ```typescript
 const { data } = await client.get('/users', {
-  query: { status: 'active', limit: 20 } // same as params: { status: 'active', limit: 20 }
+  params: { status: 'active', limit: 20 }
 });
 // Results in: /users?status=active&limit=20
 ```
@@ -257,7 +257,7 @@ Combine with path parameters:
 ```typescript
 const { data } = await client.get('/users/:userId/posts', {
   pathParams: { userId: '123' },
-  query: { limit: 10, sort: 'date' }
+  params: { limit: 10, sort: 'date' }
 });
 // Results in: /users/123/posts?limit=10&sort=date
 ```
@@ -1527,6 +1527,7 @@ const client = new HttpClient({
 
 **Removed:**
 - The OpenAPI SDK Code Generator (`@reggieofarrell/http-client/codegen`) and its peer dependencies (`openapi-typescript`, `@apidevtools/json-schema-ref-parser`, `swagger2openapi`, `yaml`). It was a build-time tool unrelated to the runtime HTTP client; if you still need it, generate your client with a standalone codegen tool of your choice, or vendor the last published version.
+- The `query` per-request config option (an alias for `params`). `params` is xior's own inherited-from-axios convention for query-string parameters (xior markets itself as ~90% axios-API-compatible and keeps `params` for that reason), so `query` was pure duplication of an already-established name rather than filling a gap. Replace `query: {...}` with `params: {...}` - the values and behavior are identical.
 
 **Changed:**
 - **Idempotency key generation no longer caches keys across separate calls.** A fresh key is generated for every `request()` call by default (via `crypto.randomUUID()`, or a custom `keyGenerator`). Automatic retries (`retryConfig`) are unaffected - they happen inside a single call and already reuse the same key. If you catch an error yourself and call the request method again later, pass the same `idempotencyKey` explicitly to guarantee the server sees it as one operation. The previous automatic cross-call caching was based on `JSON.stringify`-ing the request body, which silently broke (colliding keys, or keys that never got cleaned up) for `beforeRequest`-mutated payloads and non-JSON bodies like `FormData` - the explicit-key pattern above is the reliable replacement.
