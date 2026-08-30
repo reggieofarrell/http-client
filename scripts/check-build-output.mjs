@@ -19,6 +19,20 @@ const REQUIRED_FILES = [
   'dist/esm/index.d.ts',
   'dist/cjs/index.js',
   'dist/cjs/index.d.ts',
+  // @reggieofarrell/http-client/upload-progress subpath - see src/upload-progress.ts and
+  // the "./upload-progress" entry in package.json's "exports".
+  'dist/upload-progress.d.ts',
+  'dist/esm/upload-progress.js',
+  'dist/esm/upload-progress.d.ts',
+  'dist/cjs/upload-progress.js',
+  'dist/cjs/upload-progress.d.ts',
+  // Browser-bundler variant, resolved via package.json's "browser" export condition - see
+  // src/upload-progress.browser.ts.
+  'dist/upload-progress.browser.d.ts',
+  'dist/esm/upload-progress.browser.js',
+  'dist/esm/upload-progress.browser.d.ts',
+  'dist/cjs/upload-progress.browser.js',
+  'dist/cjs/upload-progress.browser.d.ts',
 ];
 
 const violations = [];

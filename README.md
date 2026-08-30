@@ -19,6 +19,7 @@ A class based lightweight HTTP client for both the server and browser built on `
   - [Idempotency Controls](#idempotency-controls)
   - [Disable TLS checks (server only - Node.js)](#disable-tls-checks-server-only---nodejs)
   - [Different Request Data Types](#different-request-data-types)
+  - [Upload Progress](#upload-progress)
   - [Adding Xior Plugins](#adding-xior-plugins)
   - [Accessing the underlying client](#accessing-the-underlying-client)
   - [Direct access to the underlying xior instance](#direct-access-to-the-underlying-xior-instance)
@@ -492,6 +493,14 @@ The `Retry-After` header can be:
 - A number (seconds to wait)
 - An HTTP date string (absolute time to retry)
 
+#### Don't register `xior/plugins/error-retry` directly
+
+`retryConfig` is the one authoritative path for retry behavior on an `HttpClient` instance -
+registering `xior/plugins/error-retry` yourself (e.g. via `client.client.plugins.use(...)`) is
+unsupported. `HttpClient` already registers its own retry plugin internally; a second one, at a
+different position in xior's plugin chain with different config, will compound with it in
+confusing, order-dependent ways rather than simply adding up predictably.
+
 ### Idempotency Controls
 
 Idempotency controls help prevent duplicate operations when requests are retried due to network issues, timeouts, or client-side errors. This is especially important for operations like payments, order creation, or data mutations that shouldn't be repeated.
@@ -706,6 +715,114 @@ await client.post('/xml', xmlString, { headers: { 'Content-Type': 'application/x
 await client.post('/binary', arrayBuffer, { headers: { 'Content-Type': 'application/octet-stream' } });
 ```
 
+### Upload Progress
+
+Native `fetch()` cannot report real upload progress, in either the browser or Node - not a
+limitation of this library, but of `fetch` itself. Browsers only expose real, byte-level upload
+progress through the older `XMLHttpRequest` API, and Node's `fetch` has no equivalent at all.
+(Fetch's newer streaming-request-body support looks like it should help, but it isn't a reliable
+progress signal either - it measures when your app hands a chunk to the browser's internal buffer,
+not when it's actually transmitted over the network.)
+
+To get real progress, this library ships a separate, **opt-in** entry point,
+`@reggieofarrell/http-client/upload-progress`, that bypasses `fetch` entirely for a specific
+request: `XMLHttpRequest` in the browser, `http`/`https` directly in Node. It's a separate entry
+point specifically so consumers who don't need this feature never pull either transport into their
+bundle - the core package has no static import of it at all.
+
+Bundlers that support conditional package exports (Webpack 5, Vite/Rollup, esbuild, Parcel - all of
+them, by default, for a browser target) automatically resolve this same import to a browser-only
+variant that never references Node's `http`/`https`/`stream` modules at all, so a pure browser
+build never has to resolve them either. This is transparent - the same import specifier works for
+both Node and browser consumers - but if your bundler doesn't apply package.json's `"browser"`
+export condition and you hit a `node:http`/`node:https` resolution error, that's why; check your
+bundler's docs for how to enable browser-condition resolution.
+
+```typescript
+import { HttpClient } from '@reggieofarrell/http-client';
+import { createUploadProgressPlugin } from '@reggieofarrell/http-client/upload-progress';
+
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  uploadProgressPlugin: createUploadProgressPlugin(),
+});
+
+// Browser: a File/Blob via FormData
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+await client.post('/upload', formData, {
+  realUploadProgress: (event) => {
+    console.log(`${event.loaded} / ${event.total} bytes (${event.progress}%)`);
+  }
+});
+
+// Node: streaming a file from disk
+import { createReadStream, statSync } from 'node:fs';
+
+const { size } = statSync('./large-file.zip');
+await client.post('/upload', createReadStream('./large-file.zip'), {
+  headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) },
+  realUploadProgress: (event) => {
+    console.log(`${event.loaded} / ${event.total} bytes (${event.progress}%)`);
+  }
+});
+```
+
+`realUploadProgress` is deliberately not named `onUploadProgress` - xior's own (simulated)
+`xior/plugins/progress` already uses that exact field name for a different mechanism, and reusing
+it would let both silently fire on the same callback if a client had both configured.
+
+`UploadProgressEvent`:
+
+```typescript
+interface UploadProgressEvent {
+  /** Bytes uploaded so far. Always present and monotonically non-decreasing. */
+  loaded: number;
+  /** Total bytes to upload, if known ahead of time. Omitted when unknown. */
+  total?: number;
+  /** (loaded / total) * 100, not rounded. Only present when total is known. */
+  progress?: number;
+  /** Mirrors XHR's ProgressEvent.lengthComputable - true only when total is known. */
+  lengthComputable: boolean;
+}
+```
+
+`total`/`progress` are only present when the body's byte length is known ahead of time - always
+true for `string`/`Buffer`/`Uint8Array`/`FormData` bodies, and true for a Node `Readable` stream
+only if you set your own `Content-Length` header (as in the example above), since a generic stream
+can't otherwise be measured in advance.
+
+In the browser, `credentials: 'include'` is honored the same way it is for a normal (non-progress)
+request - cross-origin cookies/session auth that would work via `fetch` also work when
+`realUploadProgress` bypasses it to `XMLHttpRequest`:
+
+```typescript
+await client.post('/upload', formData, {
+  credentials: 'include',
+  realUploadProgress: (event) => console.log(`${event.progress}%`)
+});
+```
+
+`credentials: 'omit'` has no exact equivalent under XHR and can't be fully replicated: XHR always
+sends same-origin cookies regardless of any flag, where `fetch` with `'omit'` would suppress them
+even same-origin. This only matters if you're deliberately omitting same-origin credentials, which
+is unusual.
+
+**v1 limitations** (deliberate, to keep this feature proportionate to what it's actually solving -
+see the notes on scope in `.rulesync/rules/overview.md`):
+- No redirect-following for the bypassed Node transport (`http`/`https` don't auto-follow the way
+  `fetch` does by default) - point `realUploadProgress` requests at the final, direct endpoint.
+- `FormData` bodies aren't supported under the Node transport (Node's `http`/`https` can't
+  serialize them the way `fetch` does) - use the browser transport, which handles `FormData`
+  natively at zero extra cost, or pass a pre-encoded `Buffer` body instead.
+- A raw Node `Readable` stream body can't be combined with `retryConfig` (streams can only be read
+  once) - disable retries for that request, or provide the body as a `Buffer`/string instead.
+- Only the default JSON/text response parsing is supported for a progress-tracked request (matches
+  what every other request already gets by default).
+- Download progress isn't covered by this feature at all - it remains `xior/plugins/progress`'s
+  territory (simulated, but that's the honest state of download progress without native fetch
+  support for it either).
+
 ### Adding Xior Plugins
 
 Since `HttpClient` is built on xior, you can add any xior plugin to enhance functionality:
@@ -785,7 +902,8 @@ class EnhancedHttpClient extends HttpClient {
     }));
   }
 
-  // Method for requests that need progress tracking
+  // Method for requests that need simulated progress tracking (e.g. download progress -
+  // for real upload progress, use `realUploadProgress` instead; see "Upload Progress" above)
   async uploadWithProgress(url: string, data: any, config = {}) {
     const tempClient = xior.create({
       ...this.client.defaults,
@@ -809,7 +927,8 @@ const client = new EnhancedHttpClient({
 // Regular requests (cached)
 const { data } = await client.get('/users');
 
-// Upload with progress
+// Simulated progress (xior's plugin uses onUploadProgress - a different, timer-based mechanism
+// from this library's own realUploadProgress, deliberately, so the two can't collide)
 const { data } = await client.uploadWithProgress('/upload', formData, {
   onUploadProgress: (progress) => {
     console.log(`Upload: ${progress.progress}%`);
@@ -822,7 +941,9 @@ const { data } = await client.uploadWithProgress('/upload', formData, {
 - **Cache**: `xior/plugins/cache` - Response caching
 - **Throttle**: `xior/plugins/throttle` - Request throttling
 - **Dedupe**: `xior/plugins/dedupe` - Request deduplication
-- **Progress**: `xior/plugins/progress` - Upload/download progress
+- **Progress**: `xior/plugins/progress` - Simulated (timer-based) upload/download progress. For
+  real upload progress, use this library's own `realUploadProgress` instead - see
+  [Upload Progress](#upload-progress) above.
 - **Mock**: `xior/plugins/mock` - Request mocking for tests
 - **Error Cache**: `xior/plugins/error-cache` - Error response caching
 
@@ -1537,6 +1658,7 @@ const client = new HttpClient({
 
 **Added:**
 - `isHttpError<TErrorBody>(error)` type guard - narrows to `HttpError<TErrorBody>` and types `response.data` accordingly. Needed because TypeScript's `instanceof` narrowing against a generic class always resolves unspecified type parameters to `any`, so a plain `error instanceof HttpError` check silently leaves `response.data` untyped no matter what `HttpError`'s own default is. See "Typing the error response body" below.
+- Real (non-simulated) upload progress, via a new opt-in `@reggieofarrell/http-client/upload-progress` entry point (`createUploadProgressPlugin()` + `HttpClientOptions.uploadProgressPlugin` + the per-request `realUploadProgress` callback). Purely additive - consumers who don't import the new subpath see no change at all, including no change to bundle size, since the core package has no static import of it. The subpath resolves to a browser-only variant under bundlers that support conditional package exports, so a pure browser build never has to resolve Node's `http`/`https`/`stream` modules either. Honors `credentials: 'include'` in the browser the same way a normal request does. See [Upload Progress](#upload-progress) above.
 
 **Fixed:**
 - `backoffJitter` ('full', 'equal', 'decorrelated') was silently ignored at both the instance and per-request level - retries always used a deterministic delay regardless of this setting. It now actually applies. If you were relying on the old (undocumented) deterministic behavior while setting `backoffJitter`, your retry delays will now vary as the README has always described.

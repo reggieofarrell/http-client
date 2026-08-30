@@ -1,7 +1,8 @@
 import xior from 'xior';
-import type { XiorError, XiorInstance, XiorRequestConfig, XiorResponse } from 'xior';
+import type { XiorError, XiorInstance, XiorPlugin, XiorRequestConfig, XiorResponse } from 'xior';
 import errorRetryPlugin from 'xior/plugins/error-retry';
 import { logData } from './logger.js';
+import type { UploadProgressEvent } from './upload-progress.js';
 import {
   NetworkError,
   TimeoutError,
@@ -119,6 +120,17 @@ export interface HttpClientRequestConfig extends XiorRequestConfig {
    * Values are automatically URL-encoded for safety
    */
   pathParams?: Record<string, string | number>;
+  /**
+   * Real (non-simulated) per-request upload-progress callback. Requires the instance to have
+   * been constructed with `uploadProgressPlugin` (see
+   * `@reggieofarrell/http-client/upload-progress`) - native fetch cannot report real upload
+   * progress, so setting this bypasses fetch/xior entirely for this one request.
+   *
+   * Deliberately not named `onUploadProgress` - that name is already used by xior's own
+   * (simulated, timer-based) `xior/plugins/progress` for a different mechanism; reusing it here
+   * would let both silently fire on the same callback if a client has both configured.
+   */
+  realUploadProgress?: (event: UploadProgressEvent) => void;
 }
 
 export interface HttpClientResponse<T> {
@@ -165,6 +177,14 @@ export interface HttpClientOptions {
    * @default "data.message"
    */
   errorMessageExtractor?: ErrorMessageExtractor;
+  /**
+   * Enables real (non-simulated) upload progress. Pass `createUploadProgressPlugin()` from
+   * `@reggieofarrell/http-client/upload-progress` - a separate, opt-in entry point so consumers
+   * who don't use this feature never pull its transport code into their bundle. Once supplied,
+   * use the per-request `realUploadProgress` callback (`HttpClientRequestConfig`) to actually
+   * receive progress events.
+   */
+  uploadProgressPlugin?: XiorPlugin;
 }
 
 export class HttpClient {
@@ -177,6 +197,7 @@ export class HttpClient {
   retryConfig: HttpClientRetryConfig;
   idempotencyConfig: IdempotencyConfig;
   errorMessageExtractor: ErrorMessageExtractor;
+  private hasUploadProgressPlugin: boolean;
 
   constructor(config: HttpClientOptions) {
     const backoff = config.retryConfig?.backoff || 'exponential';
@@ -243,11 +264,23 @@ export class HttpClient {
     this.retryConfig = config.retryConfig!;
     this.idempotencyConfig = idempotencyConfig;
     this.errorMessageExtractor = config.errorMessageExtractor || 'data.message';
+    this.hasUploadProgressPlugin = !!config.uploadProgressPlugin;
 
     const client = xior.create({
       ...config.xiorConfig,
       baseURL: config.baseURL,
     });
+
+    // Only registered if the consumer explicitly opted in (imported the /upload-progress
+    // subpath and passed the result here) - and, whenever it is, registered before the
+    // conditional retry plugin below so retryConfig composes correctly with progress-tracked
+    // uploads (each retry attempt re-invokes this plugin, and therefore the real transport, from
+    // scratch). See @reggieofarrell/http-client/upload-progress for why both the conditionality
+    // (tree-shaking - nothing here imports that subpath) and the ordering (retry composition)
+    // matter.
+    if (config.uploadProgressPlugin) {
+      client.plugins.use(config.uploadProgressPlugin);
+    }
 
     // Apply error retry plugin if retries are enabled
     if (this.retryConfig.retries && this.retryConfig.retries > 0) {
@@ -468,6 +501,13 @@ export class HttpClient {
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
     let req: XiorResponse<T> | undefined;
+
+    if (config.realUploadProgress && !this.hasUploadProgressPlugin) {
+      throw new Error(
+        'realUploadProgress requires passing uploadProgressPlugin: createUploadProgressPlugin() ' +
+          "(from '@reggieofarrell/http-client/upload-progress') to the HttpClient constructor."
+      );
+    }
 
     // Handle path parameter substitution early, before any other processing
     // This ensures the substituted URL is used throughout the request lifecycle
