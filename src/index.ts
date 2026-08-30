@@ -5,6 +5,8 @@ export {
   HttpClientOptions,
   HttpClientResponse,
   HttpClientRetryConfig,
+  IdempotencyConfig,
+  ErrorMessageExtractor,
 } from './http-client.js';
 
 export {

@@ -1,6 +1,35 @@
 # Http Client
 
-A lightweight HTTP client for both the server and browser built on `xior` with retry functionality, written in TypeScript.
+A class based lightweight HTTP client for both the server and browser built on `xior` with retry functionality, written in TypeScript.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Built on](#built-on)
+- [Usage](#usage)
+  - [Configuration Options](#configuration-options)
+  - [Basic Setup](#basic-setup)
+  - [Making Requests](#making-requests)
+  - [Request Configuration](#request-configuration)
+  - [Path Parameters](#path-parameters)
+  - [Query Parameters](#query-parameters)
+  - [Timeout Configuration](#timeout-configuration)
+  - [Aborting In-Flight Requests](#aborting-in-flight-requests)
+  - [Retry Configuration with Jitter](#retry-configuration-with-jitter)
+  - [Idempotency Controls](#idempotency-controls)
+  - [Disable TLS checks (server only - Node.js)](#disable-tls-checks-server-only---nodejs)
+  - [Different Request Data Types](#different-request-data-types)
+  - [Adding Xior Plugins](#adding-xior-plugins)
+  - [Accessing the underlying client](#accessing-the-underlying-client)
+  - [Direct access to the underlying xior instance](#direct-access-to-the-underlying-xior-instance)
+  - [Type responses](#type-responses)
+  - [Middleware Hooks](#middleware-hooks)
+  - [Extending the HttpClient](#extending-the-httpclient)
+  - [Error Handling](#error-handling)
+  - [Debugging](#debugging)
+- [Breaking Changes](#breaking-changes)
+- [Releasing](#releasing)
+- [License](#license)
 
 ## Installation
 
@@ -8,28 +37,65 @@ A lightweight HTTP client for both the server and browser built on `xior` with r
 npm install @reggieofarrell/http-client
 ```
 
-## What is Xior?
-
-[Xior](https://suhaotian.github.io/xior/) is a lightweight (~6KB) fetch-based HTTP client with an axios-like API. It supports plugins, interceptors, and provides similar functionality to axios while being built on the modern `fetch` API.
-
 ## Built on
 
-This package is built on top of `@reggieofarrell/axios-retry-client v2` and provides a similar API, but uses `xior` instead of `axios` for smaller bundle size and modern fetch-based architecture.
+This package is built on top of [Xior](https://suhaotian.github.io/xior/), a lightweight (~6KB) fetch-based HTTP client with an axios-like API. It supports plugins, interceptors, and provides similar functionality to axios while being built on the modern `fetch` API.
 
 ## Usage
 
 ### Configuration Options
 
-The `HttpClient` accepts the following configuration options:
+```typescript
+interface HttpClientOptions {
+  /** Base URL for the API */
+  baseURL: string;
 
-- `xiorConfig`: Configuration for the underlying [xior instance](https://suhaotian.github.io/xior/). This includes timeout settings, headers, and other xior-specific options.
-- `baseURL`: Base URL for the API.
-- `debug`: Whether to log request and response details.
-- `debugLevel`: Debug level. 'normal' will log request and response data. 'verbose' will log all xior properties for the request and response.
-- `name`: Name of the client. Used for logging.
-- `retryConfig`: Configuration for error retry functionality. The default config if you don't override it is `{ retries: 0, retryDelay: exponentialDelay, delayFactor: 500, backoff: 'exponential', backoffJitter: 'none' }`. You can override individual properties in the `retryConfig` and they will be merged with the default. We add `delayFactor`, `backoff`, and `backoffJitter` to make configuring the retry delay easier. Otherwise you'd have to create your own `retryDelay` function (which you can still do if you like).
-- `idempotencyConfig`: Configuration for idempotency key generation. The default config is `{ enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }`. This helps prevent duplicate operations when requests are retried due to network issues or timeouts. Available methods include GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, though HEAD and OPTIONS are typically not used for idempotency.
-- `errorMessagePath`: Path or function to extract error messages from HTTP error responses. Defaults to `"data.message"`. Supports dot notation for nested paths (e.g., `"data.error.detail"`) or custom functions for complex extraction logic.
+  /**
+   * Configuration for the underlying xior instance - timeout, headers, and
+   * other xior-specific options. See https://suhaotian.github.io/xior/
+   */
+  xiorConfig?: Omit<XiorRequestConfig, 'baseURL'>;
+
+  /**
+   * Whether to log request and response details.
+   * @default false
+   */
+  debug?: boolean;
+
+  /**
+   * 'normal' logs request/response data; 'verbose' logs all xior properties
+   * for the request and response.
+   * @default 'normal'
+   */
+  debugLevel?: 'normal' | 'verbose';
+
+  /**
+   * Name of the client, used in log output.
+   * @default 'HttpClient'
+   */
+  name?: string;
+
+  /**
+   * Retry/backoff configuration - see "Retry Configuration with Jitter" below.
+   * Individual properties merge with the default rather than replacing it.
+   * @default { retries: 0, backoff: 'exponential', delayFactor: 500, backoffJitter: 'none' }
+   */
+  retryConfig?: HttpClientRetryConfig;
+
+  /**
+   * Idempotency key configuration - see "Idempotency Controls" below.
+   * @default { enabled: false, methods: ['POST', 'PATCH'], headerName: 'Idempotency-Key' }
+   */
+  idempotencyConfig?: IdempotencyConfig;
+
+  /**
+   * Dot-notation path (e.g. "data.error.detail") or a function to extract an
+   * error message from an HTTP error response.
+   * @default 'data.message'
+   */
+  errorMessagePath?: string | ((errorResponse: any) => string | undefined);
+}
+```
 
 For more details, refer to the [source code](src/http-client.ts).
 
@@ -148,156 +214,45 @@ const { data } = await client.get('/endpoint', {
 
 ### Path Parameters
 
-You can use path parameters in URLs by defining them with the `:paramName` format and providing values via the `pathParams` config option. Path parameter values are automatically URL-encoded for safety.
-
-#### Basic Usage
+You can use path parameters in URLs by defining them with the `:paramName` format and providing values via the `pathParams` config option. Values are automatically URL-encoded, and numbers are converted to strings.
 
 ```typescript
-// Single path parameter
-const { data } = await client.get('/users/:userId', {
-  pathParams: { userId: '123' }
-});
-// Results in: /users/123
-```
-
-#### Multiple Path Parameters
-
-```typescript
-// Multiple path parameters
+// Single or multiple path parameters, with special characters and numbers handled automatically
 const { data } = await client.get('/users/:userId/posts/:postId', {
-  pathParams: { userId: '123', postId: '456' }
+  pathParams: { userId: 'user@example.com', postId: 456 }
 });
-// Results in: /users/123/posts/456
+// Results in: /users/user%40example.com/posts/456
 ```
 
-#### Path Parameters with All HTTP Methods
-
-Path parameters work with all HTTP methods:
+Path parameters work identically with every HTTP method and can be combined with any other request config (`headers`, `timeout`, `retryConfig`, `query`, etc.):
 
 ```typescript
-// GET request
-const { data } = await client.get('/users/:userId', {
-  pathParams: { userId: '123' }
-});
-
-// POST request
-const { data } = await client.post('/users/:userId/posts', { title: 'New Post' }, {
-  pathParams: { userId: '123' }
-});
-
-// PUT request
-const { data } = await client.put('/users/:userId/posts/:postId', { title: 'Updated' }, {
-  pathParams: { userId: '123', postId: '456' }
-});
-
-// PATCH request
-const { data } = await client.patch('/users/:userId', { name: 'John' }, {
-  pathParams: { userId: '123' }
-});
-
-// DELETE request
-const { data } = await client.delete('/users/:userId/posts/:postId', {
-  pathParams: { userId: '123', postId: '456' }
-});
+const { data } = await client.post(
+  '/users/:userId/posts',
+  { title: 'New Post' },
+  { pathParams: { userId: '123' }, headers: { 'X-Custom-Header': 'value' } }
+);
 ```
 
-#### URL Encoding
-
-Path parameter values are automatically URL-encoded, so special characters are handled safely:
+If a URL contains path parameters that aren't provided via `pathParams`, an error is thrown:
 
 ```typescript
-// Special characters are automatically encoded
-const { data } = await client.get('/users/:userId', {
-  pathParams: { userId: 'user@example.com' }
-});
-// Results in: /users/user%40example.com
-```
-
-#### Number Values
-
-You can pass numbers as path parameter values - they'll be automatically converted to strings:
-
-```typescript
-const { data } = await client.get('/posts/:postId', {
-  pathParams: { postId: 12345 }
-});
-// Results in: /posts/12345
-```
-
-#### Error Handling
-
-If you provide a URL with path parameters but don't provide the corresponding values, an error will be thrown:
-
-```typescript
-// This will throw an error
-try {
-  await client.get('/users/:userId', {});
-} catch (error) {
-  // Error: Missing required path parameters: userId. Provide values via pathParams config.
-}
-```
-
-#### Combining with Other Config Options
-
-Path parameters can be combined with other configuration options:
-
-```typescript
-const { data } = await client.get('/users/:userId/posts/:postId', {
-  pathParams: { userId: '123', postId: '456' },
-  headers: {
-    'X-Custom-Header': 'value'
-  },
-  timeout: 5000,
-  retryConfig: {
-    retries: 3
-  }
-});
+// Throws: Missing required path parameters: userId. Provide values via pathParams config.
+await client.get('/users/:userId', {});
 ```
 
 ### Query Parameters
 
-You can pass query parameters to requests using either the `query` or `params` property. Both are aliases for the same functionality - `query` is provided as a more intuitive name, while `params` matches the XiorRequestConfig API. If both are provided, `query` takes precedence.
-
-#### Basic Usage
+You can pass query parameters using either the `query` or `params` property - both are aliases for the same thing (`query` is a more intuitive name; `params` matches the XiorRequestConfig API), and both work identically with every HTTP method. If both are provided on the same request, `query` takes precedence and `params` is ignored.
 
 ```typescript
-// Using the `query` alias
 const { data } = await client.get('/users', {
-  query: { limit: 10, offset: 0 }
+  query: { status: 'active', limit: 20 } // same as params: { status: 'active', limit: 20 }
 });
-// Results in: /users?limit=10&offset=0
-
-// Using the `params` property (XiorRequestConfig API)
-const { data } = await client.get('/users', {
-  params: { limit: 10, offset: 0 }
-});
-// Results in: /users?limit=10&offset=0
+// Results in: /users?status=active&limit=20
 ```
 
-#### Query Parameters with All HTTP Methods
-
-Query parameters work with all HTTP methods:
-
-```typescript
-// GET request
-const { data } = await client.get('/users', {
-  query: { status: 'active', limit: 20 }
-});
-
-// POST request
-const { data } = await client.post('/search', { query: 'test' }, {
-  query: { page: 1, perPage: 10 }
-});
-
-// DELETE request
-const { data } = await client.delete('/users', {
-  query: { userId: '123' }
-});
-```
-
-#### Combining Query Parameters with Path Parameters
-
-You can use both query parameters and path parameters together:
+Combine with path parameters:
 
 ```typescript
 const { data } = await client.get('/users/:userId/posts', {
@@ -305,19 +260,6 @@ const { data } = await client.get('/users/:userId/posts', {
   query: { limit: 10, sort: 'date' }
 });
 // Results in: /users/123/posts?limit=10&sort=date
-```
-
-#### Query Parameter Precedence
-
-If both `query` and `params` are provided, `query` takes precedence:
-
-```typescript
-// query will be used, params will be ignored
-const { data } = await client.get('/users', {
-  query: { limit: 10 },
-  params: { limit: 20 } // This will be ignored
-});
-// Results in: /users?limit=10
 ```
 
 ### Timeout Configuration
@@ -744,69 +686,24 @@ const client = new HttpClient({
 
 ### Different Request Data Types
 
-The `HttpClient` supports various data types for requests:
-
-#### FormData (File Uploads)
+`HttpClient` passes whatever you give it straight through to `fetch`, so any request body type works - just set the appropriate `Content-Type` header (skip it for `FormData`, which sets its own multipart boundary automatically).
 
 ```typescript
+// FormData (e.g. file uploads) - no Content-Type needed, fetch sets it automatically
 const formData = new FormData();
 formData.append('file', fileInput.files[0]);
-formData.append('description', 'My file upload');
-
 const { data } = await client.post('/upload', formData);
-```
 
-#### URL-Encoded Form Data
-
-```typescript
-const params = new URLSearchParams();
-params.append('username', 'johndoe');
-params.append('password', 'secret123');
-
-const { data } = await client.post('/login', params, {
-  headers: {
-    'Content-Type': 'application/x-www-form-urlencoded'
-  }
+// URL-encoded form data
+const params = new URLSearchParams({ username: 'johndoe', password: 'secret123' });
+await client.post('/login', params, {
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
 });
-```
 
-#### Plain Text
-
-```typescript
-const textData = 'Hello World';
-
-const { data } = await client.post('/text', textData, {
-  headers: {
-    'Content-Type': 'text/plain'
-  }
-});
-```
-
-#### XML Data
-
-```typescript
-const xmlData = '<?xml version="1.0"?><root><item>value</item></root>';
-
-const { data } = await client.post('/xml', xmlData, {
-  headers: {
-    'Content-Type': 'application/xml'
-  }
-});
-```
-
-#### Binary Data
-
-```typescript
-const binaryData = new ArrayBuffer(8);
-const view = new Uint8Array(binaryData);
-view[0] = 0x48; // 'H'
-view[1] = 0x65; // 'e'
-
-const { data } = await client.post('/binary', binaryData, {
-  headers: {
-    'Content-Type': 'application/octet-stream'
-  }
-});
+// Plain text, XML, and binary (ArrayBuffer/Blob/Uint8Array/etc.) all follow the same pattern:
+await client.post('/text', 'Hello World', { headers: { 'Content-Type': 'text/plain' } });
+await client.post('/xml', xmlString, { headers: { 'Content-Type': 'application/xml' } });
+await client.post('/binary', arrayBuffer, { headers: { 'Content-Type': 'application/octet-stream' } });
 ```
 
 ### Adding Xior Plugins

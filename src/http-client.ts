@@ -36,7 +36,7 @@ type JitterOptions = 'none' | 'full' | 'equal' | 'decorrelated';
  * - String: dot notation path like "data.error.message"
  * - Function: custom extraction logic (errorResponse) => string | undefined
  */
-type ErrorMessageExtractor = string | ((errorResponse: any) => string | undefined);
+export type ErrorMessageExtractor = string | ((errorResponse: any) => string | undefined);
 
 export interface HttpClientRetryConfig {
   /**
