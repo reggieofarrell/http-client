@@ -1651,7 +1651,7 @@ const client = new HttpClient({
 
 ## Breaking Changes
 
-### Unreleased - Codegen removal, idempotency simplification, retry jitter and abort fixes, xior upgrade
+### v3.0.0 - Error handling fixes, API cleanup, and real upload progress
 
 **Removed:**
 - The OpenAPI SDK Code Generator (`@reggieofarrell/http-client/codegen`) and its peer dependencies (`openapi-typescript`, `@apidevtools/json-schema-ref-parser`, `swagger2openapi`, `yaml`). It was a build-time tool unrelated to the runtime HTTP client; if you still need it, generate your client with a standalone codegen tool of your choice, or vendor the last published version.
@@ -1672,6 +1672,141 @@ const client = new HttpClient({
 - A deliberately aborted request (`AbortController.abort()`) was misclassified as a `NetworkError` with `isRetriable: true` - meaning `retryConfig` could automatically retry a request you just cancelled, and `error.name` was never actually `'AbortError'` despite the README's documented example checking for it. Aborts are now wrapped in a new `AbortError` type (`error.name === 'AbortError'`, `isRetriable: false` by default). If you were checking `error instanceof NetworkError` to detect aborts, check `error instanceof AbortError` instead.
 - A genuine network failure was misclassified as a non-retriable `SerializationError` instead of a `NetworkError`. `fetch()` itself rejects with a plain `TypeError` for every network-layer failure (offline, DNS failure, connection refused/reset, CORS block, mixed-content block) in both browsers and Node's `undici`, and `isSerializationError` treated any `TypeError` as a serialization issue - so this was the single most common transient failure in practice, and it silently defeated `retryConfig` for it (the retry-evaluation fallback had a related bug: it required a `.request` property that a raw `fetch()` `TypeError` never has, so it wouldn't have retried even once misclassification was fixed). Both are fixed; a dropped connection or DNS failure is now a retriable `NetworkError`, matching the README's documented `instanceof NetworkError` pattern. If you had code specifically branching on `error instanceof SerializationError` to handle connectivity issues, switch it to `NetworkError`.
 - An `errorHandler` override that returned normally instead of throwing (nothing in the types or docs actually forbade this, even though every documented example throws) used to fall through to a confusing `Cannot read properties of undefined (reading 'data')` with no indication of the real cause. `request()` now detects this specifically and throws a clear configuration error pointing at the "Error Handling" section instead. If you have an `errorHandler` override that doesn't always throw, it was already broken - this only changes the error message you'll see.
+
+**Migration Guide:**
+
+```typescript
+// query -> params (removed alias; identical values and behavior)
+
+// Before (v2.x)
+await client.get('/search', { query: { q: 'test' } });
+
+// After (v3.x)
+await client.get('/search', { params: { q: 'test' } });
+```
+
+```typescript
+// errorMessagePath -> errorMessageExtractor (renamed; identical behavior)
+
+// Before (v2.x)
+new HttpClient({ baseURL, errorMessagePath: 'error.message' });
+
+// After (v3.x)
+new HttpClient({ baseURL, errorMessageExtractor: 'error.message' });
+```
+
+```typescript
+// Detecting an aborted request
+
+// Before (v2.x) - aborts were misclassified as NetworkError, indistinguishable from a real
+// connectivity failure, and error.name was never actually 'AbortError'
+try {
+  await client.get('/endpoint', { signal: controller.signal });
+} catch (error) {
+  if (error instanceof NetworkError) {
+    // could be an abort OR a genuine network failure - no way to tell them apart
+  }
+}
+
+// After (v3.x) - aborts get their own error type
+import { AbortError, NetworkError } from '@reggieofarrell/http-client';
+
+try {
+  await client.get('/endpoint', { signal: controller.signal });
+} catch (error) {
+  if (error instanceof AbortError) {
+    // the request was cancelled
+  } else if (error instanceof NetworkError) {
+    // a genuine connectivity failure (offline, DNS, connection reset, etc.) - retriable
+  }
+}
+```
+
+```typescript
+// Detecting a genuine network failure
+
+// Before (v2.x) - offline/DNS/connection-reset failures were misclassified as SerializationError
+// and silently defeated retryConfig
+if (error instanceof SerializationError) {
+  // handled connectivity issues here, incorrectly
+}
+
+// After (v3.x)
+if (error instanceof NetworkError) {
+  // connectivity issues are classified correctly, and retryConfig can now actually retry them
+}
+```
+
+```typescript
+// Typing a caught HttpError's response body
+
+// Before (v2.x) - response.data was `any`
+try {
+  await client.post('/orders', payload);
+} catch (error) {
+  if (error instanceof HttpError) {
+    console.log(error.response.data.code); // typed as `any`
+  }
+}
+
+// After (v3.x) - response.data defaults to `unknown`; narrow it with isHttpError<T>()
+import { isHttpError } from '@reggieofarrell/http-client';
+
+interface OrderErrorBody {
+  code: string;
+}
+
+try {
+  await client.post('/orders', payload);
+} catch (error) {
+  if (isHttpError<OrderErrorBody>(error)) {
+    console.log(error.response.data.code); // typed as `string`
+  }
+}
+```
+
+```typescript
+// Idempotency keys are no longer cached/reused across separate request() calls
+
+// Before (v2.x) - the same (JSON.stringify'd) body silently reused the same cached key on a
+// later, hand-written retry
+await client.post('/payments', payload); // key generated & cached from the body
+// ...later, after catching an error and retrying manually...
+await client.post('/payments', payload); // same body -> same cached key (fragile: broke for
+                                          // FormData and beforeRequest-mutated payloads)
+
+// After (v3.x) - pass idempotencyKey explicitly to guarantee the server sees one operation
+const idempotencyKey = crypto.randomUUID();
+try {
+  await client.post('/payments', payload, { idempotencyKey });
+} catch (error) {
+  // retrying the same logical operation later
+  await client.post('/payments', payload, { idempotencyKey });
+}
+```
+
+```typescript
+// A custom errorHandler override must always throw
+
+// Before (v3.x) - nothing enforced this; an override that forgot to (re)throw crashed with a
+// confusing, unrelated "Cannot read properties of undefined" instead of doing what it looked
+// like it should do
+class CustomClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    logToMonitoring(error);
+    // forgot to throw here
+  }
+}
+
+// Still v3.x - the fix: always throw. request() now also surfaces a clear configuration error
+// (instead of a confusing one) if an override forgets to.
+class CustomClient extends HttpClient {
+  protected errorHandler(error: any, reqType: RequestType, url: string) {
+    logToMonitoring(error);
+    throw this.processError(error, reqType, url);
+  }
+}
+```
 
 ### v2.0.0 - Stable Error Types
 
