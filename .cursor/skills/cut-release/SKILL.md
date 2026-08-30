@@ -15,11 +15,12 @@ description: Cut and publish a new release of @reggieofarrell/http-client
 4. Push the commit and tag: `git push --follow-tags origin main`.
 5. Create the GitHub Release, which triggers `.github/workflows/release.yml`'s publish job:
    `npm run release:publish` (wraps `gh release create v$npm_package_version --generate-notes`).
-6. Watch the workflow run (`gh run watch` or the Actions tab) — it re-runs the full gate plus
-   `npm run check:audit`, then publishes to npm via Trusted Publishing (OIDC, no token). If it
-   fails on the OIDC step and this is the first release since that was set up, see the README's
-   "Releasing" section for the one-time `npm trust github` step and the GitHub `npm` Environment
-   it requires.
+6. Watch the workflow run (`gh run watch` or the Actions tab) — it re-runs format/lint/type-check/
+   tests/build/`check:audit` (deliberately not `rules:check` - agent-instruction drift is a DX
+   concern for PR review, not something that should block a publish), then publishes to npm via
+   Trusted Publishing (OIDC, no token). If it fails on the OIDC step and this is the first release
+   since that was set up, see the README's "Releasing" section for the one-time `npm trust github`
+   step and the GitHub `npm` Environment it requires.
 
 Never manually run `npm publish` from a local machine — the point of the OIDC setup is that
 publishing only happens from this workflow.
