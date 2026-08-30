@@ -602,6 +602,21 @@ export class HttpClient {
       this.errorHandler(err, requestType, url);
     }
 
+    if (!req) {
+      // errorHandler is typed to return `never` so a conforming TypeScript override can't
+      // compile without unconditionally throwing - but a plain-JS consumer, or an override that
+      // routes around the type system (e.g. assigning a jest.fn()-style mock in a test), can
+      // still return normally. There's no fallback response to construct in that case, so fail
+      // loudly and specifically here rather than letting `req!.data` below throw a confusing
+      // "Cannot read properties of undefined" with no indication of the actual cause.
+      throw new Error(
+        `[${this.name || 'HttpClient'}] errorHandler must throw - it returned normally instead ` +
+          `of throwing for a failed ${requestType} ${url} request. Override errorHandler and ` +
+          `either call "throw this.processError(error, reqType, url)" or throw a custom error ` +
+          'built from it - see the README\'s "Error Handling" section.'
+      );
+    }
+
     // Call afterResponse middleware hook for successful responses
     await this.afterResponse(requestType, url, req!, req!.data);
 
@@ -852,6 +867,19 @@ export class HttpClient {
    * 1. Call this.processError to get the processed error object, then customize and throw it
    * 2. Completely override the error handling logic
    * 3. Add custom logging, metrics, or other side effects before throwing
+   *
+   * This method must always throw - there is no fallback response for `request()` to return if
+   * it doesn't. An override that returns normally instead is a bug: `request()` detects this and
+   * throws a clear configuration error rather than silently producing a broken response (see the
+   * guard immediately after this method is called in `request()`).
+   *
+   * Note: a `never` return type isn't used here to enforce this at compile time, even though it
+   * would statically forbid a non-throwing override - TypeScript doesn't infer `never` for an
+   * override that always throws unless the override itself is also explicitly annotated `: never`
+   * (confirmed directly: an unannotated override method whose body unconditionally throws is
+   * still inferred as `() => void` for override-compatibility checking, not `() => never`). Doing
+   * so would force every subclass overriding this method - including every compliant example in
+   * this README - to add that annotation too, just to keep compiling.
    *
    * @param error - The error object
    * @param reqType - The request type
