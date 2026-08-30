@@ -1218,6 +1218,33 @@ The HTTP client provides five stable error types:
    - Properties: `code`, `isRetriable`, `metadata` (includes abort details), `name` is `'AbortError'`
    - Not retriable by default - retrying a request you just cancelled would defeat the purpose
 
+#### Typing the error response body
+
+`HttpError` is generic over its response body (`HttpError<TErrorBody = unknown>`), so you can type
+a third-party API's error shape the same way `client.get<T>()` types a success response. `response.data`
+defaults to `unknown` rather than `any`, so you can't touch it without narrowing first.
+
+Use the `isHttpError<T>()` type guard to get this typing - a plain `error instanceof HttpError` check
+does **not** work for this: TypeScript resolves a generic class's unspecified type parameters to `any`
+during `instanceof` narrowing, regardless of the class's own default, so `response.data` would silently
+come back as `any` even though `HttpError`'s default is `unknown`.
+
+```typescript
+import { isHttpError } from '@reggieofarrell/http-client';
+
+interface StripeErrorBody {
+  error: { message: string; type: string };
+}
+
+try {
+  await client.post('/charge', payload);
+} catch (error) {
+  if (isHttpError<StripeErrorBody>(error)) {
+    console.log(error.response.data.error.message); // typed as `string`
+  }
+}
+```
+
 #### Error Metadata
 
 All errors include comprehensive diagnostic metadata:
@@ -1505,6 +1532,10 @@ const client = new HttpClient({
 - **Idempotency key generation no longer caches keys across separate calls.** A fresh key is generated for every `request()` call by default (via `crypto.randomUUID()`, or a custom `keyGenerator`). Automatic retries (`retryConfig`) are unaffected - they happen inside a single call and already reuse the same key. If you catch an error yourself and call the request method again later, pass the same `idempotencyKey` explicitly to guarantee the server sees it as one operation. The previous automatic cross-call caching was based on `JSON.stringify`-ing the request body, which silently broke (colliding keys, or keys that never got cleaned up) for `beforeRequest`-mutated payloads and non-JSON bodies like `FormData` - the explicit-key pattern above is the reliable replacement.
 - Upgraded `xior` from `^0.7.8` to `^0.8.4`. No API changes required on our side; see [xior's changelog](https://github.com/suhaotian/xior/blob/main/CHANGELOG.md) if you use xior plugins or options directly.
 - Renamed the `errorMessagePath` config option (instance-level and per-request) to `errorMessageExtractor`, matching the `ErrorMessageExtractor` type it was already typed as - it always accepted a function as well as a dot-notation string, so "path" was misleading. Rename any usages; behavior is unchanged.
+- `HttpError.response.data` (and `HttpErrorResponse.data`) is now `unknown` by default instead of `any` - `HttpError` and `HttpErrorResponse` are generic over the error body (`HttpError<TErrorBody = unknown>`), matching how `client.get<T>()` already types success responses. This only affects code that references `HttpError`/`HttpErrorResponse` as an explicit type annotation without narrowing `TErrorBody` first, e.g. `const err: HttpError = ...; err.response.data.someProp` will no longer compile as-is - add `as HttpError<YourType>` or (preferably) switch to the new `isHttpError<T>()` type guard. Code that narrows via a plain `error instanceof HttpError` check is unaffected either way; see "Typing the error response body" below for why.
+
+**Added:**
+- `isHttpError<TErrorBody>(error)` type guard - narrows to `HttpError<TErrorBody>` and types `response.data` accordingly. Needed because TypeScript's `instanceof` narrowing against a generic class always resolves unspecified type parameters to `any`, so a plain `error instanceof HttpError` check silently leaves `response.data` untyped no matter what `HttpError`'s own default is. See "Typing the error response body" below.
 
 **Fixed:**
 - `backoffJitter` ('full', 'equal', 'decorrelated') was silently ignored at both the instance and per-request level - retries always used a deterministic delay regardless of this setting. It now actually applies. If you were relying on the old (undocumented) deterministic behavior while setting `backoffJitter`, your retry delays will now vary as the README has always described.
