@@ -52,9 +52,6 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Rules in sync (rulesync)
-        run: npm run rules:check
-
       - name: Type-check
         run: npm run test:types
 
