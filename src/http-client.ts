@@ -106,11 +106,11 @@ export interface HttpClientRequestConfig extends XiorRequestConfig {
    */
   idempotencyConfig?: IdempotencyConfig;
   /**
-   * Per-request error message path override
+   * Per-request error message extractor override
    * String path: dot notation like "data.error.message"
    * Function: (errorResponse) => errorResponse.data?.error
    */
-  errorMessagePath?: ErrorMessageExtractor;
+  errorMessageExtractor?: ErrorMessageExtractor;
   /**
    * Path parameters to substitute in the URL
    * URLs can contain path parameters in the format `:paramName`
@@ -172,7 +172,7 @@ export interface HttpClientOptions {
    * Function: (errorResponse) => errorResponse.data?.error
    * @default "data.message"
    */
-  errorMessagePath?: ErrorMessageExtractor;
+  errorMessageExtractor?: ErrorMessageExtractor;
 }
 
 export class HttpClient {
@@ -184,7 +184,7 @@ export class HttpClient {
   name: HttpClientOptions['name'];
   retryConfig: HttpClientRetryConfig;
   idempotencyConfig: IdempotencyConfig;
-  errorMessagePath: ErrorMessageExtractor;
+  errorMessageExtractor: ErrorMessageExtractor;
 
   constructor(config: HttpClientOptions) {
     const backoff = config.retryConfig?.backoff || 'exponential';
@@ -250,7 +250,7 @@ export class HttpClient {
     this.name = config.name;
     this.retryConfig = config.retryConfig!;
     this.idempotencyConfig = idempotencyConfig;
-    this.errorMessagePath = config.errorMessagePath || 'data.message';
+    this.errorMessageExtractor = config.errorMessageExtractor || 'data.message';
 
     const client = xior.create({
       ...config.xiorConfig,
@@ -765,8 +765,8 @@ export class HttpClient {
       const category = classifyHttpError(error.response.status);
       const statusText = error.response.statusText || '';
 
-      // Use per-request errorMessagePath if provided, otherwise use instance default
-      const extractor = error.config?.errorMessagePath || this.errorMessagePath;
+      // Use per-request errorMessageExtractor if provided, otherwise use instance default
+      const extractor = error.config?.errorMessageExtractor || this.errorMessageExtractor;
       const extractedMessage = this.extractErrorMessage(error.response, extractor);
       const message = extractedMessage || statusText;
 

@@ -677,7 +677,7 @@ describe('HttpClient', () => {
     test('supports custom string path for error message extraction', async () => {
       const customClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: 'data.error.detail',
+        errorMessageExtractor: 'data.error.detail',
       });
 
       const customMock = new MockPlugin(customClient.client);
@@ -699,7 +699,7 @@ describe('HttpClient', () => {
     test('supports function-based error message extraction', async () => {
       const customClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: response => {
+        errorMessageExtractor: response => {
           // Custom logic to extract message from complex response structure
           if (response.data?.errors?.length > 0) {
             return response.data.errors[0].message;
@@ -731,20 +731,20 @@ describe('HttpClient', () => {
       };
       mock.onGet('/error').reply(400, errorResponse);
 
-      await expect(client.get('/error', { errorMessagePath: 'data.error.detail' })).rejects.toThrow(
-        HttpError
-      );
       await expect(
-        client.get('/error', { errorMessagePath: 'data.error.detail' })
+        client.get('/error', { errorMessageExtractor: 'data.error.detail' })
+      ).rejects.toThrow(HttpError);
+      await expect(
+        client.get('/error', { errorMessageExtractor: 'data.error.detail' })
       ).rejects.toMatchObject({
         message: 'Per-request custom message',
       });
     });
 
-    test('per-request errorMessagePath overrides instance-level config', async () => {
+    test('per-request errorMessageExtractor overrides instance-level config', async () => {
       const instanceClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: 'data.error.message',
+        errorMessageExtractor: 'data.error.message',
       });
 
       const instanceMock = new MockPlugin(instanceClient.client);
@@ -757,10 +757,10 @@ describe('HttpClient', () => {
       instanceMock.onGet('/error').reply(400, errorResponse);
 
       await expect(
-        instanceClient.get('/error', { errorMessagePath: 'data.error.detail' })
+        instanceClient.get('/error', { errorMessageExtractor: 'data.error.detail' })
       ).rejects.toThrow(HttpError);
       await expect(
-        instanceClient.get('/error', { errorMessagePath: 'data.error.detail' })
+        instanceClient.get('/error', { errorMessageExtractor: 'data.error.detail' })
       ).rejects.toMatchObject({
         message: 'Per-request override message',
       });
@@ -771,7 +771,7 @@ describe('HttpClient', () => {
     test('handles nested dot notation paths correctly', async () => {
       const customClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: 'data.errors.0.message',
+        errorMessageExtractor: 'data.errors.0.message',
       });
 
       const customMock = new MockPlugin(customClient.client);
@@ -791,7 +791,7 @@ describe('HttpClient', () => {
     test('handles function extractor returning undefined gracefully', async () => {
       const customClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: () => undefined, // Function returns undefined
+        errorMessageExtractor: () => undefined, // Function returns undefined
       });
 
       const customMock = new MockPlugin(customClient.client);
@@ -809,7 +809,7 @@ describe('HttpClient', () => {
     test('handles function extractor with complex response structure', async () => {
       const customClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: response => {
+        errorMessageExtractor: response => {
           // Handle multiple possible error formats
           if (response.data?.error?.message) {
             return response.data.error.message;
@@ -841,7 +841,7 @@ describe('HttpClient', () => {
     test('handles invalid dot notation path gracefully', async () => {
       const customClient = new HttpClient({
         baseURL: 'https://api.example.com',
-        errorMessagePath: 'data.nonexistent.deep.path',
+        errorMessageExtractor: 'data.nonexistent.deep.path',
       });
 
       const customMock = new MockPlugin(customClient.client);
