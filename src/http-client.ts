@@ -361,17 +361,29 @@ export class HttpClient {
     // Apply jitter based on strategy
     if (jitter === 'full') {
       // Full jitter: random value between 0 and delay
-      return Math.random() * delay;
+      return this.sampleJitterFraction() * delay;
     } else if (jitter === 'equal') {
       // Equal jitter: half deterministic, half random
-      return delay / 2 + Math.random() * (delay / 2);
+      return delay / 2 + this.sampleJitterFraction() * (delay / 2);
     } else if (jitter === 'decorrelated') {
       // Decorrelated jitter (stateless approximation): random between base and delay * 3
-      return delayFactor + Math.random() * (delay * 3 - delayFactor);
+      return delayFactor + this.sampleJitterFraction() * (delay * 3 - delayFactor);
     } else {
       // No jitter
       return delay;
     }
+  }
+
+  /**
+   * Unit-interval sample used only to spread retry timestamps. This is not a
+   * security context: a CSPRNG would add latency without changing the
+   * thundering-herd property the jitter is meant to provide.
+   *
+   * @returns A number in `[0, 1)`.
+   */
+  private sampleJitterFraction(): number {
+    // eslint-disable-next-line sonarjs/pseudo-random -- retry jitter is not cryptographic
+    return Math.random();
   }
 
   private parseRetryAfter(retryAfter: string | number): number | null {
@@ -428,10 +440,13 @@ export class HttpClient {
    * @throws Error if a required path parameter is missing from pathParams
    */
   private substitutePathParams(url: string, pathParams?: Record<string, string | number>): string {
+    // Fresh regex each call: a module-level `/g` pattern would retain lastIndex
+    // across requests and skip matches. `\w` is `[A-Za-z0-9_]` without the `u` flag.
+    const paramPattern = /:([a-zA-Z_]\w*)/g;
+
     // If no pathParams provided, return URL as-is
     if (!pathParams || Object.keys(pathParams).length === 0) {
       // Check if URL contains any :paramName patterns - if so, throw error
-      const paramPattern = /:([a-zA-Z_][a-zA-Z0-9_]*)/g;
       const matches = url.match(paramPattern);
       if (matches && matches.length > 0) {
         const missingParams = matches.map(match => match.substring(1)); // Remove the :
@@ -442,47 +457,33 @@ export class HttpClient {
       return url;
     }
 
-    // Find all path parameter patterns in the URL (:paramName)
-    // Pattern matches : followed by a valid identifier (starts with letter/underscore, then alphanumeric/underscore)
-    const paramPattern = /:([a-zA-Z_][a-zA-Z0-9_]*)/g;
-    let substitutedUrl = url;
-    const usedParams = new Set<string>();
-
-    // Replace each parameter with its value from pathParams
-    substitutedUrl = substitutedUrl.replace(paramPattern, (_match, paramName) => {
-      // Check if this parameter exists in pathParams
+    // Replace each :paramName with its URL-encoded value from pathParams
+    return url.replace(paramPattern, (_match, paramName: string) => {
       if (!(paramName in pathParams)) {
         throw new Error(
           `Missing required path parameter: ${paramName}. Provide value via pathParams.${paramName}`
         );
       }
 
-      // Mark this parameter as used
-      usedParams.add(paramName);
-
-      // Get the value and convert to string if it's a number
       const value = pathParams[paramName];
       const stringValue = typeof value === 'number' ? value.toString() : value;
 
-      // URL-encode the value using encodeURIComponent (encodes everything except: A-Z a-z 0-9 - _ . ! ~ * ' ( ))
-      // This ensures special characters are properly encoded for URL paths
+      // encodeURIComponent encodes everything except: A-Z a-z 0-9 - _ . ! ~ * ' ( )
       return encodeURIComponent(stringValue);
     });
-
-    // Check for unused pathParams (optional - could be useful for debugging)
-    // Note: We don't throw an error for unused params as they might be intended for query params or other use
-
-    return substitutedUrl;
   }
 
   /**
    * Generates a fresh idempotency key. Uses `crypto.randomUUID()` when available
    * (Node 19+/modern browsers), falling back to a timestamp + random suffix otherwise.
+   * Uniqueness matters more than unpredictability here; replay protection is the
+   * server's job.
    */
   private generateIdempotencyKey(): string {
     if (typeof globalThis.crypto?.randomUUID === 'function') {
       return globalThis.crypto.randomUUID();
     }
+    // eslint-disable-next-line sonarjs/pseudo-random -- last-resort uniqueness when Web Crypto is absent
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
@@ -509,67 +510,11 @@ export class HttpClient {
       );
     }
 
-    // Handle path parameter substitution early, before any other processing
-    // This ensures the substituted URL is used throughout the request lifecycle
-    // Extract pathParams from config before processing (we'll delete it later)
-    const pathParams = config.pathParams;
-    if (pathParams !== undefined) {
-      // Substitute path parameters in the URL
-      url = this.substitutePathParams(url, pathParams);
-      // Remove pathParams from config as it's not part of XiorRequestConfig
-      delete config.pathParams;
-    } else {
-      // Even if pathParams is not provided, check if URL has parameters and throw error
-      url = this.substitutePathParams(url, undefined);
-    }
-
-    // Handle per-request retry config by mapping it to xior's error-retry plugin options
-    if (config.retryConfig) {
-      const perRequestRetryConfig = config.retryConfig;
-
-      // Map our config to xior's error-retry plugin options
-      if (perRequestRetryConfig.retries !== undefined) {
-        config.retryTimes = perRequestRetryConfig.retries;
-      }
-
-      config.retryInterval = this.buildRetryInterval(perRequestRetryConfig);
-
-      if (perRequestRetryConfig.onRetry !== undefined) {
-        config.onRetry = perRequestRetryConfig.onRetry;
-      }
-
-      if (perRequestRetryConfig.enableRetry !== undefined) {
-        config.enableRetry = perRequestRetryConfig.enableRetry;
-      }
-
-      delete config.retryConfig;
-    }
-
-    // Handle idempotency key generation
-    const mergedIdempotencyConfig = {
-      ...this.idempotencyConfig,
-      ...config.idempotencyConfig,
-    };
-
-    if (mergedIdempotencyConfig.enabled && mergedIdempotencyConfig.methods?.includes(requestType)) {
-      // A manual key takes precedence; otherwise generate a fresh key for this call
-      // (a custom `keyGenerator` if provided, or the built-in generator otherwise).
-      // To reuse the same key across your own manual retries, pass `idempotencyKey` explicitly -
-      // automatic retries (via `retryConfig`) already reuse this same request/header internally.
-      const idempotencyKey = config.idempotencyKey
-        ? config.idempotencyKey
-        : mergedIdempotencyConfig.keyGenerator
-          ? mergedIdempotencyConfig.keyGenerator()
-          : this.generateIdempotencyKey();
-
-      config.headers = {
-        ...config.headers,
-        [mergedIdempotencyConfig.headerName!]: idempotencyKey,
-      };
-    }
-
-    delete config.idempotencyKey;
-    delete config.idempotencyConfig;
+    // Path params, per-request retry, and idempotency headers are applied before
+    // `beforeRequest` so subclass hooks see the fully resolved request.
+    url = this.applyPathParams(url, config);
+    this.applyPerRequestRetryConfig(config);
+    this.applyIdempotencyHeaders(requestType, config);
 
     // Call beforeRequest middleware hook to modify request parameters and perform actions
     await this.beforeRequest(requestType, url, data, config);
@@ -621,6 +566,98 @@ export class HttpClient {
     await this.afterResponse(requestType, url, req!, req!.data);
 
     return { request: req!, data: req!.data };
+  }
+
+  /**
+   * Substitutes `:paramName` segments and strips `pathParams` so it never reaches xior.
+   * Calling this with no `pathParams` still validates that the URL has none left.
+   *
+   * @param url Request path that may contain `:paramName` placeholders.
+   * @param config Mutable per-request config; `pathParams` is deleted after use.
+   * @returns The URL with placeholders replaced.
+   */
+  private applyPathParams(url: string, config: HttpClientRequestConfig): string {
+    const substitutedUrl = this.substitutePathParams(url, config.pathParams);
+    delete config.pathParams;
+    return substitutedUrl;
+  }
+
+  /**
+   * Maps this library's `retryConfig` onto xior's error-retry plugin options
+   * (`retryTimes`, `retryInterval`, `onRetry`, `enableRetry`) for one request.
+   *
+   * @param config Mutable per-request config; `retryConfig` is deleted after mapping.
+   */
+  private applyPerRequestRetryConfig(config: HttpClientRequestConfig): void {
+    if (!config.retryConfig) {
+      return;
+    }
+
+    const perRequestRetryConfig = config.retryConfig;
+
+    if (perRequestRetryConfig.retries !== undefined) {
+      config.retryTimes = perRequestRetryConfig.retries;
+    }
+
+    config.retryInterval = this.buildRetryInterval(perRequestRetryConfig);
+
+    if (perRequestRetryConfig.onRetry !== undefined) {
+      config.onRetry = perRequestRetryConfig.onRetry;
+    }
+
+    if (perRequestRetryConfig.enableRetry !== undefined) {
+      config.enableRetry = perRequestRetryConfig.enableRetry;
+    }
+
+    delete config.retryConfig;
+  }
+
+  /**
+   * Injects an idempotency header when the merged instance/request config says
+   * this method should send one. A caller-supplied `idempotencyKey` wins;
+   * otherwise a custom `keyGenerator` or the built-in generator is used.
+   *
+   * @param requestType HTTP method for this call.
+   * @param config Mutable per-request config; idempotency fields are deleted after use.
+   */
+  private applyIdempotencyHeaders(requestType: RequestType, config: HttpClientRequestConfig): void {
+    const mergedIdempotencyConfig = {
+      ...this.idempotencyConfig,
+      ...config.idempotencyConfig,
+    };
+
+    if (mergedIdempotencyConfig.enabled && mergedIdempotencyConfig.methods?.includes(requestType)) {
+      // To reuse the same key across manual retries, pass `idempotencyKey` explicitly.
+      // Automatic retries already reuse this request/header internally.
+      const idempotencyKey = this.resolveIdempotencyKey(config, mergedIdempotencyConfig);
+      config.headers = {
+        ...config.headers,
+        [mergedIdempotencyConfig.headerName!]: idempotencyKey,
+      };
+    }
+
+    delete config.idempotencyKey;
+    delete config.idempotencyConfig;
+  }
+
+  /**
+   * Picks the idempotency key for one request without nested ternaries.
+   *
+   * @param config Per-request config that may already hold a manual key.
+   * @param merged Combined instance + request idempotency settings.
+   * @returns The key to send in the configured header.
+   */
+  private resolveIdempotencyKey(
+    config: HttpClientRequestConfig,
+    merged: IdempotencyConfig
+  ): string {
+    if (config.idempotencyKey) {
+      return config.idempotencyKey;
+    }
+    if (merged.keyGenerator) {
+      return merged.keyGenerator();
+    }
+    return this.generateIdempotencyKey();
   }
 
   /**
@@ -778,7 +815,6 @@ export class HttpClient {
     reqType: RequestType,
     url: string
   ): HttpError | NetworkError | TimeoutError | SerializationError | AbortError {
-    // Build request config for metadata (common to all error types)
     const requestConfig: XiorRequestConfig = {
       method: reqType,
       url,
@@ -788,74 +824,120 @@ export class HttpClient {
     };
 
     if (error.response) {
-      // HTTP response error (status code outside 2xx range)
-      if (this.debug) {
-        if (this.debugLevel === 'verbose') {
-          logData(`[${this.name}] ${reqType} ${url} : error.response`, error.response);
-        } else {
-          logData(`[${this.name}] ${reqType} ${url} : error.response.data`, error.response.data);
-        }
-      }
-
-      const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
-      const response = buildHttpErrorResponse(error.response);
-      const category = classifyHttpError(error.response.status);
-      const statusText = error.response.statusText || '';
-
-      // Use per-request errorMessageExtractor if provided, otherwise use instance default
-      const extractor = error.config?.errorMessageExtractor || this.errorMessageExtractor;
-      const extractedMessage = this.extractErrorMessage(error.response, extractor);
-      const message = extractedMessage || statusText;
-
-      // Check if enableRetry function overrides the default retriability
-      let isRetriable: boolean | undefined;
-      if (this.retryConfig.enableRetry && typeof this.retryConfig.enableRetry === 'function') {
-        isRetriable = this.retryConfig.enableRetry(requestConfig, error);
-      }
-
-      return new HttpError(
-        message,
-        error.response.status,
-        category,
-        statusText,
-        response,
-        metadata,
-        error,
-        isRetriable
-      );
-    } else {
-      // No response received or other errors (network, timeout, serialization, etc.)
-      if (this.debug) {
-        if (this.debugLevel === 'verbose') {
-          logData(`[${this.name}] ${reqType} ${url} : error`, error);
-        } else {
-          console.log(`[${this.name}] ${reqType} ${url} error.message : ${error.message}`);
-        }
-      }
-
-      if (isAbortError(error)) {
-        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
-        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [aborted] : ${error.message || 'Request aborted'}`;
-        return new AbortError(message, metadata, error);
-      }
-
-      if (isSerializationError(error)) {
-        const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
-        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [serialization error] : ${error.message || 'Serialization error'}`;
-        return new SerializationError(message, metadata, error);
-      }
-
-      if (isTimeoutError(error)) {
-        const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
-        const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [timeout] : ${error.message || 'Request timeout'}`;
-        return new TimeoutError(message, metadata, error);
-      }
-
-      // Default to network error for other cases
-      const metadata = buildNetworkErrorMetadata(requestConfig, this.name || 'HttpClient', error);
-      const message = `[${this.name || 'HttpClient'}] ${reqType} ${url} [network error] : ${error.message || 'Network error'}`;
-      return new NetworkError(message, metadata, error);
+      return this.processHttpResponseError(error, reqType, url, requestConfig);
     }
+
+    return this.processTransportError(error, reqType, url, requestConfig);
+  }
+
+  /**
+   * Builds an `HttpError` from a response whose status is outside 2xx.
+   *
+   * @param error Original xior error that still has `response`.
+   * @param reqType HTTP method used for the call.
+   * @param url Request URL after path-param substitution.
+   * @param requestConfig Metadata snapshot shared with other error types.
+   * @returns Classified HTTP error ready to throw.
+   */
+  private processHttpResponseError(
+    error: any,
+    reqType: RequestType,
+    url: string,
+    requestConfig: XiorRequestConfig
+  ): HttpError {
+    if (this.debug) {
+      if (this.debugLevel === 'verbose') {
+        logData(`[${this.name}] ${reqType} ${url} : error.response`, error.response);
+      } else {
+        logData(`[${this.name}] ${reqType} ${url} : error.response.data`, error.response.data);
+      }
+    }
+
+    const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
+    const response = buildHttpErrorResponse(error.response);
+    const category = classifyHttpError(error.response.status);
+    const statusText = error.response.statusText || '';
+    const extractor = error.config?.errorMessageExtractor || this.errorMessageExtractor;
+    const extractedMessage = this.extractErrorMessage(error.response, extractor);
+    const message = extractedMessage || statusText;
+
+    let isRetriable: boolean | undefined;
+    if (this.retryConfig.enableRetry && typeof this.retryConfig.enableRetry === 'function') {
+      isRetriable = this.retryConfig.enableRetry(requestConfig, error);
+    }
+
+    return new HttpError(
+      message,
+      error.response.status,
+      category,
+      statusText,
+      response,
+      metadata,
+      error,
+      isRetriable
+    );
+  }
+
+  /**
+   * Classifies errors that never produced an HTTP response (abort, timeout,
+   * serialization, or generic network failure).
+   *
+   * @param error Original xior/transport error without `response`.
+   * @param reqType HTTP method used for the call.
+   * @param url Request URL after path-param substitution.
+   * @param requestConfig Metadata snapshot shared with other error types.
+   * @returns The matching typed error from this library's hierarchy.
+   */
+  private processTransportError(
+    error: any,
+    reqType: RequestType,
+    url: string,
+    requestConfig: XiorRequestConfig
+  ): NetworkError | TimeoutError | SerializationError | AbortError {
+    if (this.debug) {
+      if (this.debugLevel === 'verbose') {
+        logData(`[${this.name}] ${reqType} ${url} : error`, error);
+      } else {
+        console.log(`[${this.name}] ${reqType} ${url} error.message : ${error.message}`);
+      }
+    }
+
+    const clientName = this.name || 'HttpClient';
+    const prefix = `[${clientName}] ${reqType} ${url}`;
+
+    if (isAbortError(error)) {
+      const metadata = buildNetworkErrorMetadata(requestConfig, clientName, error);
+      return new AbortError(
+        `${prefix} [aborted] : ${error.message || 'Request aborted'}`,
+        metadata,
+        error
+      );
+    }
+
+    if (isSerializationError(error)) {
+      const metadata = buildErrorMetadata(requestConfig, clientName);
+      return new SerializationError(
+        `${prefix} [serialization error] : ${error.message || 'Serialization error'}`,
+        metadata,
+        error
+      );
+    }
+
+    if (isTimeoutError(error)) {
+      const metadata = buildNetworkErrorMetadata(requestConfig, clientName, error);
+      return new TimeoutError(
+        `${prefix} [timeout] : ${error.message || 'Request timeout'}`,
+        metadata,
+        error
+      );
+    }
+
+    const metadata = buildNetworkErrorMetadata(requestConfig, clientName, error);
+    return new NetworkError(
+      `${prefix} [network error] : ${error.message || 'Network error'}`,
+      metadata,
+      error
+    );
   }
 
   /**
