@@ -1877,7 +1877,8 @@ upload coverage to SonarQube at <https://sonar.casadega.dev> (new-code quality g
 decoration is deferred until that `main` baseline exists; see
 [docs/development/sonarqube.md](docs/development/sonarqube.md).
 
-Local Husky hooks run a fail-closed secret scan on commit and push. The changed-file Sonar
+Local Husky hooks run a fail-closed secret scan on commit and push. Coding-agent post-edit hooks
+run a type-independent SonarJS subset on production `src/` files. The changed-file Sonar
 precheck (`npm run sonar:precheck`) skips loudly when Scanner or credentials are missing; CI
 still enforces the full scan after the project is provisioned.
 

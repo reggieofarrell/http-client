@@ -103,15 +103,16 @@ it that way (see "Working mode" below).
 
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook) — this drives
   `CHANGELOG.md` generation via `commit-and-tag-version` (config: `.versionrc.json`).
-- **Agent config:** authored once under `.rulesync/` (rules + skills; `cut-release`,
-  `write-tests`, and `fix-sonarqube-issues`) and generated to Cursor, Claude Code, Codex CLI, and
-  the `AGENTS.md` standard via `npm run rules:sync`. Skills (not commands) so Codex CLI actually
-  gets them — it only supports rulesync's "commands" feature in global mode, not per-project.
-  Never hand-edit `.cursor/`, `.claude/`, `.agents/`, `AGENTS.md`, or `CLAUDE.md` — `npm run
-  rules:check` (pre-push + CI) fails on drift.
-- **SonarQube:** layered gate (local SonarJS ESLint, fail-closed secret scans, skippable
-  changed-file precheck, CI scan via `Casadega-Development/action-workflows`). The server gate is
-  new-code-only. Do not put tokens in source, env files, command arguments, or logs.
+- **Agent config:** authored once under `.rulesync/` (rules, skills, and coding-agent hooks;
+  `cut-release`, `write-tests`, and `fix-sonarqube-issues`) and generated to Cursor, Claude Code,
+  Codex CLI, and the `AGENTS.md` standard via `npm run rules:sync`. Skills (not commands) so
+  Codex CLI actually gets them — it only supports rulesync's "commands" feature in global mode,
+  not per-project. Never hand-edit `.cursor/`, `.claude/`, `.agents/`, `.codex/`, `AGENTS.md`, or
+  `CLAUDE.md` — `npm run rules:check` (pre-push + CI) fails on drift.
+- **SonarQube:** layered gate (local SonarJS ESLint, agent post-edit hook, fail-closed secret
+  scans, skippable changed-file precheck, CI scan via `Casadega-Development/action-workflows`).
+  The server gate is new-code-only. Do not put tokens in source, env files, command arguments, or
+  logs.
 - **Releasing:** see the README's "Releasing" section — `npm run release[:patch|:minor|:major]`,
   push tags, `npm run release:publish` to cut the GitHub Release that triggers the OIDC npm publish
   in `.github/workflows/release.yml`.

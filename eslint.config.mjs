@@ -22,7 +22,15 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 
 export default [
   // Global ignores
-  { ignores: ['dist/**/*', 'node_modules/**/*', 'coverage/**/*', 'tmp/**/*'] },
+  {
+    ignores: [
+      'dist/**/*',
+      'node_modules/**/*',
+      'coverage/**/*',
+      'tmp/**/*',
+      'eslint.sonar-hook.config.mjs',
+    ],
+  },
   // Base configuration for all files
   {
     languageOptions: {

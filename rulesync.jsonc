@@ -10,18 +10,21 @@
   // rulesync docs: https://github.com/dyoshikawa/rulesync
   //
   // Generated per target (do not hand-edit):
-  //   cursor     -> .cursor/rules/*.mdc, .cursor/skills/*/SKILL.md
-  //   claudecode -> CLAUDE.md (root), .claude/rules/*.md, .claude/skills/*/SKILL.md
+  //   cursor     -> .cursor/rules/*.mdc, .cursor/skills/*/SKILL.md, .cursor/hooks.json
+  //   claudecode -> CLAUDE.md (root), .claude/rules/*.md, .claude/skills/*/SKILL.md,
+  //                 .claude/settings.json (hooks)
   //   agentsmd   -> AGENTS.md (root) + .agents/memories/*.md
   //   codexcli   -> AGENTS.md (root, shared with agentsmd) + .agents/skills/*/SKILL.md
+  //                 + .codex/hooks.json
   //
   // The root rule (.rulesync/rules/overview.md) deliberately does not target `cursor` — Cursor
   // reads AGENTS.md natively, so emitting the root there too would load it twice.
   //
   // Skills, not commands: Codex CLI only supports rulesync "commands" in global mode (not
   // project mode) but has full project-mode "skills" support, and Cursor/Claude Code support
-  // skills just as well as commands — so skills is the one feature that reaches all three
-  // targets. See `.rulesync/skills/*/SKILL.md`.
+  // skills just as well as commands — so skills is the one instruction feature that reaches all
+  // three targets. Hooks are generated separately from `.rulesync/hooks.jsonc`. See
+  // `.rulesync/skills/*/SKILL.md`.
   "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
-  "features": ["rules", "skills"],
+  "features": ["rules", "skills", "hooks"],
 }

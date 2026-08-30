@@ -3,3 +3,6 @@ node_modules
 *.md
 sonar-project.properties
 .scannerwork
+.cursor/hooks.json
+.claude/settings.json
+.codex/hooks.json

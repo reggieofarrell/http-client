@@ -5,7 +5,7 @@ description: Investigate and fix SonarQube or SonarJS findings, quality-gate fai
 # Fix SonarQube issues
 
 1. Capture the rule ID, message, file, line, branch/PR context, and whether the
-   finding came from the server, IDE, or ESLint.
+   finding came from the server, IDE, agent hook, or ESLint.
 2. Read the surrounding implementation and tests. Diagnose the underlying risk
    instead of mechanically rewriting the highlighted line.
 3. Prefer a small structural fix that preserves behavior and strengthens types

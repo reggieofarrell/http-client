@@ -28,6 +28,8 @@ Everyday pre-push still runs the lighter `rules:check` plus `npm test`.
 - Every active server rule implemented by `eslint-plugin-sonarjs` is an ESLint
   error on production `src/`. The SonarQube server quality gate remains
   authoritative for analyzers that cannot run locally and is **new-code-only**.
+- Coding-agent post-edit hooks run a type-independent subset of that profile on
+  production `src/` files. Edit `.rulesync/hooks.jsonc`, not generated hook files.
 - SonarQube secret scans are fail-closed. A finding or scanner failure blocks
   the Git operation. The server-backed pre-push check may skip only when its
   explicit status says prerequisites are unavailable; findings and analysis
