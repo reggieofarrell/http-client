@@ -1014,6 +1014,18 @@ export class HttpClient {
    * Cloudflare's `event.waitUntil()`, etc.) inside your override - that's a runtime concern this
    * library does not try to solve.
    *
+   * The `async`/`Promise<void>` signature is NOT about awaiting this (nothing does) - it's what
+   * makes the swallow-failures guarantee above actually hold. `errorHandler` protects itself with
+   * `void this.onError(...).catch(() => {})`, and that `.catch()` only ever sees a *rejected
+   * promise* - it cannot intercept a plain synchronous `throw`. An `async` function converts a
+   * synchronous `throw` in its body into a promise rejection automatically, so a subclass override
+   * that throws synchronously is still safely swallowed. Confirmed directly: with `onError`
+   * declared as a plain (non-`async`) method, `this.onError(...)` throws immediately at the call
+   * site, before `.catch()` is ever attached, so the intended `throw processedError` on the next
+   * line never runs and the caller gets the onError override's own error instead of the real one -
+   * precisely the failure mode this hook exists to prevent. Do not remove `async` from an override
+   * (or from this declaration) even though its return value is never used.
+   *
    * Not called at all if a subclass overrides `errorHandler` directly instead of relying on the
    * default implementation - that override already owns the full throw contract. Call
    * `this.onError(...)` yourself, or `await super.errorHandler(...)`, if you want both.
