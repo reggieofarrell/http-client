@@ -46,11 +46,9 @@ The Tests workflow:
 
 - runs on pull requests to `main` and on pushes to `main` (the latter re-baselines new code).
   `cancel-in-progress` applies only to pull requests so a `main` upload is not cancelled;
-- **bootstrap:** the Community branch plugin requires a successful analysis of the target branch
-  (`main`) before pull-request decoration. The Sonar job currently runs only on `push` to `main`.
-  Restore same-repo PR scans in a follow-up once the Sonar UI shows a `main` analysis;
-- skips the Sonar job for pull requests from forks once PR scans are restored (GitHub does not
-  expose repository secrets to those runs);
+- runs the Sonar job on same-repo pull requests and on pushes to `main` (main already has a
+  baseline analysis for the Community branch plugin). Fork PRs skip Sonar because GitHub does not
+  expose repository secrets to those runs;
 - calls `Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@main` and maps
   `SONAR_TOKEN` explicitly (`secrets: inherit` does not cross from this personal repository into the
   Casadega org; an inherited token arrives empty and the scanner returns HTTP 401);
@@ -58,8 +56,8 @@ The Tests workflow:
 - supplies explicit PR or branch parameters for the Community branch plugin;
 - enforces `issue-gate-scope: new-code` plus the official quality-gate action
   (`sonarsource/sonarqube-quality-gate-action@v1.2.1`);
-- upserts a sticky pull-request comment (`<!-- casadega-sonarqube -->`) once PR scans are enabled.
-  Pushes to `main` do not comment.
+- upserts a sticky pull-request comment (`<!-- casadega-sonarqube -->`) on PR scans. Pushes to
+  `main` do not comment.
 
 The caller job grants `pull-requests: write` so that comment can be posted; missing permission fails
 the comment step closed. Turn the comment off with `post-pr-comment: false` on the reusable workflow
