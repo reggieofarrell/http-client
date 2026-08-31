@@ -287,5 +287,26 @@ describe('logger', () => {
       // The actual output depends on the order of processing
       expect(consoleLogSpy).toHaveBeenNthCalledWith(3, expect.stringContaining('[Circular]'));
     });
+
+    it('does not flag a legitimately shared (non-circular) reference as circular (regression)', () => {
+      // Regression test: the circular guard used to track every object seen anywhere in the
+      // whole value, not just the current chain of ancestors - so an ordinary object referenced
+      // more than once at different paths (siblings, or nested elsewhere) was falsely reported
+      // as '[Circular]' on its second and later occurrences, discarding real data.
+      const shared = { id: 42 };
+      const obj = { first: shared, second: shared, third: { nested: shared } };
+
+      logData('Shared Reference', obj);
+
+      expect(consoleLogSpy).toHaveBeenCalledTimes(3);
+      expect(consoleLogSpy).toHaveBeenNthCalledWith(
+        3,
+        JSON.stringify(
+          { first: { id: 42 }, second: { id: 42 }, third: { nested: { id: 42 } } },
+          null,
+          2
+        )
+      );
+    });
   });
 });

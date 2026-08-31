@@ -46,16 +46,28 @@ export const logInfo = (message: string) => {
  * @returns The stringified object
  */
 const safeStringify = (obj: any, indent = 2): string => {
-  const cache = new Set();
+  // Tracks only the current chain of ancestors (root -> ... -> the value being processed), not
+  // every object seen anywhere in the whole value - a flat "seen anywhere" set can't distinguish
+  // a real cycle from an ordinary object legitimately referenced twice at different paths (e.g.
+  // the same normalized entity attached under two keys), and falsely reports the second
+  // occurrence as '[Circular]', discarding real data. `this` inside JSON.stringify's replacer is
+  // the object/array currently holding `value` - popping back to it on each call keeps `ancestors`
+  // exactly the path from the root to here, so `ancestors.includes(value)` only matches a genuine
+  // cycle.
+  const ancestors: unknown[] = [];
   return JSON.stringify(
     obj,
-    (_, value) => {
-      if (typeof value === 'object' && value !== null) {
-        if (cache.has(value)) {
-          return '[Circular]';
-        }
-        cache.add(value);
+    function (_key, value) {
+      if (typeof value !== 'object' || value === null) {
+        return value;
       }
+      while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) {
+        ancestors.pop();
+      }
+      if (ancestors.includes(value)) {
+        return '[Circular]';
+      }
+      ancestors.push(value);
       return value;
     },
     indent
