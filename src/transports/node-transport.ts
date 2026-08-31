@@ -12,6 +12,7 @@ import {
   buildTimeoutError,
   buildProgressEvent,
   settleFromResponse,
+  stringifyHeaderValue,
   type RequestConfigWithProgress,
 } from './shared.js';
 
@@ -30,12 +31,16 @@ const CHUNK_SIZE = 64 * 1024;
  * against a real xior instance, not assumed - so none of these need a fallback here. `url` is the
  * one exception: it comes directly from what the caller passed to e.g. `client.get(url, ...)`, so
  * an empty string is a real (if unusual) possibility worth keeping a fallback for.
+ *
+ * Non-null assertions on those normalized fields are omitted deliberately: `joinPath` already
+ * accepts optional strings, and Sonar (S4325) flags assertions the receiver does not need.
  */
 function buildFinalUrl(request: XiorRequestConfig): string {
   const path = request.url || '';
-  const fullPath = isAbsoluteURL(path) ? path : joinPath(request.baseURL!, path);
+  const fullPath = isAbsoluteURL(path) ? path : joinPath(request.baseURL, path);
 
-  return buildSortedURL(fullPath, request.params!, request.paramsSerializer!);
+  const paramsSerializer = request.paramsSerializer ?? (() => '');
+  return buildSortedURL(fullPath, request.params ?? null, paramsSerializer);
 }
 
 function readIncomingMessageBody(res: IncomingMessage): Promise<Buffer> {
@@ -65,9 +70,9 @@ function isReadableStream(data: unknown): data is Readable {
 const streamsAlreadyStartedReading = new WeakSet<Readable>();
 
 function getContentLengthHeader(request: XiorRequestConfig): number | undefined {
-  for (const [key, value] of Object.entries(request.headers!)) {
+  for (const [key, value] of Object.entries(request.headers ?? {})) {
     if (key.toLowerCase() === 'content-length' && value !== undefined) {
-      return Number(value);
+      return Number(stringifyHeaderValue(value));
     }
   }
   return undefined;
@@ -221,8 +226,8 @@ export function performNodeUploadRequest(request: XiorRequestConfig): Promise<Xi
   const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest;
 
   const headers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(request.headers!)) {
-    if (value !== undefined) headers[key] = String(value);
+  for (const [key, value] of Object.entries(request.headers ?? {})) {
+    if (value !== undefined) headers[key] = stringifyHeaderValue(value);
   }
   if (
     total !== undefined &&
@@ -253,10 +258,13 @@ export function performNodeUploadRequest(request: XiorRequestConfig): Promise<Xi
 
     req.on('error', err => settleOnce(() => reject(buildNetworkError(request, err))));
 
-    if (request.timeout) {
-      req.setTimeout(request.timeout, () => {
+    // Capture timeout into a local so the setTimeout callback does not need a
+    // non-null assertion on `request.timeout` (S4325).
+    const timeoutMs = request.timeout;
+    if (timeoutMs) {
+      req.setTimeout(timeoutMs, () => {
         req.destroy();
-        settleOnce(() => reject(buildTimeoutError(request, request.timeout!)));
+        settleOnce(() => reject(buildTimeoutError(request, timeoutMs)));
       });
     }
 
