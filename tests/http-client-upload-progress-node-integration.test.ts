@@ -5,8 +5,6 @@ import { HttpClient } from '../src/http-client';
 import { HttpError, NetworkError } from '../src/errors';
 import { createUploadProgressPlugin, UploadProgressEvent } from '../src/upload-progress';
 
-jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
-
 /**
  * Real upload-progress verification against a real server, following the same rationale as
  * `tests/http-client-retry-integration.test.ts`: `xior/plugins/mock` cannot exercise this code at

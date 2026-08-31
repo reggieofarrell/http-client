@@ -13,8 +13,6 @@ import {
 } from '../src/errors';
 import MockPlugin from 'xior/plugins/mock';
 
-jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
-
 describe('HttpClient', () => {
   let client: HttpClient;
   let mock: MockPlugin;
@@ -1558,6 +1556,124 @@ describe('HttpClient', () => {
       customMock.restore();
     });
 
+    test('onError fires with the classified error after a failed request', async () => {
+      const onErrorSpy = jest.fn();
+      class CustomClient extends HttpClient {
+        protected async onError(requestType: RequestType, url: string, error: any): Promise<void> {
+          onErrorSpy(requestType, url, error);
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+
+      expect(onErrorSpy).toHaveBeenCalledWith(RequestType.GET, '/error', expect.any(HttpError));
+      customMock.restore();
+    });
+
+    test('onError is not called for a successful request', async () => {
+      const onErrorSpy = jest.fn();
+      class CustomClient extends HttpClient {
+        protected async onError(): Promise<void> {
+          onErrorSpy();
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      await customClient.get('/test');
+
+      expect(onErrorSpy).not.toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('onError is fire-and-forget: a never-resolving override does not delay the thrown error', async () => {
+      // If errorHandler awaited onError, this request would hang until the test timeout instead
+      // of rejecting promptly.
+      class CustomClient extends HttpClient {
+        protected async onError(): Promise<void> {
+          return new Promise(() => {});
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      customMock.restore();
+    });
+
+    test('a rejecting onError override does not surface as an unhandled rejection or replace the thrown error', async () => {
+      const unhandled = jest.fn();
+      process.on('unhandledRejection', unhandled);
+
+      class CustomClient extends HttpClient {
+        protected async onError(): Promise<void> {
+          throw new Error('logging backend is down');
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+      // Let any dangling microtask/rejection settle before asserting nothing leaked.
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(unhandled).not.toHaveBeenCalled();
+      process.off('unhandledRejection', unhandled);
+      customMock.restore();
+    });
+
+    test('overriding errorHandler directly does not call onError automatically', async () => {
+      const onErrorSpy = jest.fn();
+      class CustomClient extends HttpClient {
+        protected async onError(): Promise<void> {
+          onErrorSpy();
+        }
+        protected errorHandler(error: any, reqType: RequestType, url: string) {
+          throw this.processError(error, reqType, url);
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(customClient.get('/error')).rejects.toThrow(HttpError);
+
+      expect(onErrorSpy).not.toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('debug/debugLevel are pure flags a subclass can read to recreate logging via hooks', async () => {
+      const logs: string[] = [];
+      class LoggingClient extends HttpClient {
+        protected async beforeRequest(requestType: RequestType, url: string): Promise<void> {
+          if (this.debug) logs.push(`${requestType} ${url}`);
+        }
+        protected async onError(requestType: RequestType, url: string, error: any): Promise<void> {
+          if (this.debug) logs.push(`ERROR ${requestType} ${url}: ${error.message}`);
+        }
+      }
+
+      const client = new LoggingClient({ baseURL: 'https://api.example.com', debug: true });
+      const customMock = new MockPlugin(client.client);
+      customMock.onGet('/error').reply(500, { error: 'Server Error' });
+
+      await expect(client.get('/error')).rejects.toThrow(HttpError);
+
+      expect(logs).toEqual(['GET /error', expect.stringContaining('ERROR GET /error')]);
+      customMock.restore();
+    });
+
     test('combined beforeRequest and afterResponse workflow', async () => {
       class CustomClient extends HttpClient {
         public beforeRequestSpy = jest.fn();
@@ -1603,50 +1719,6 @@ describe('HttpClient', () => {
       expect(customClient.afterResponseSpy).toHaveBeenCalled();
       expect(response.data.responseTime).toBeDefined();
       customMock.restore();
-    });
-  });
-
-  describe('Debug Logging', () => {
-    beforeEach(() => {
-      jest.clearAllMocks();
-    });
-
-    test('logs verbose request details when debugLevel is verbose', async () => {
-      const verboseClient = new HttpClient({
-        baseURL: 'https://api.example.com',
-        debug: true,
-        debugLevel: 'verbose',
-      });
-
-      const verboseMock = new MockPlugin(verboseClient.client);
-      verboseMock.onGet('/test').reply(200, { success: true });
-
-      await verboseClient.get('/test');
-
-      expect(require('../src/logger').logData).toHaveBeenCalledWith(
-        '[HttpClient] GET /test',
-        expect.objectContaining({ data: undefined, config: expect.any(Object) })
-      );
-      verboseMock.restore();
-    });
-
-    test('logs normal request details when debugLevel is normal', async () => {
-      const normalClient = new HttpClient({
-        baseURL: 'https://api.example.com',
-        debug: true,
-        debugLevel: 'normal',
-      });
-
-      const normalMock = new MockPlugin(normalClient.client);
-      normalMock.onPost('/test').reply(200, { success: true });
-
-      await normalClient.post('/test', { data: 'test' });
-
-      expect(require('../src/logger').logData).toHaveBeenCalledWith(
-        '[HttpClient] POST /test',
-        expect.objectContaining({ data: { data: 'test' } })
-      );
-      normalMock.restore();
     });
   });
 
@@ -1744,84 +1816,6 @@ describe('HttpClient', () => {
       });
 
       await expect(client.get('/error')).rejects.toThrow();
-    });
-
-    test('handles error with verbose debug logging', async () => {
-      const debugClient = new HttpClient({
-        baseURL: 'https://api.example.com',
-        debug: true,
-        debugLevel: 'verbose',
-      });
-
-      const debugMock = new MockPlugin(debugClient.client);
-      debugMock.onGet('/error').reply(() => {
-        const error = new Error('Request Error');
-        (error as any).request = {};
-        throw error;
-      });
-
-      await expect(debugClient.get('/error')).rejects.toThrow();
-      debugMock.restore();
-    });
-
-    test('handles error with normal debug logging', async () => {
-      const debugClient = new HttpClient({
-        baseURL: 'https://api.example.com',
-        debug: true,
-        debugLevel: 'normal',
-      });
-
-      const debugMock = new MockPlugin(debugClient.client);
-      debugMock.onGet('/error').reply(() => {
-        const error = new Error('Request Error');
-        (error as any).request = {};
-        throw error;
-      });
-
-      await expect(debugClient.get('/error')).rejects.toThrow();
-      debugMock.restore();
-    });
-
-    test('handles error with verbose debug logging for response errors', async () => {
-      const debugClient = new HttpClient({
-        baseURL: 'https://api.example.com',
-        debug: true,
-        debugLevel: 'verbose',
-      });
-
-      const debugMock = new MockPlugin(debugClient.client);
-      debugMock.onGet('/error').reply(() => {
-        const error = new Error('Response Error');
-        (error as any).response = {
-          status: 500,
-          data: { message: 'Server Error' },
-        };
-        throw error;
-      });
-
-      await expect(debugClient.get('/error')).rejects.toThrow();
-      debugMock.restore();
-    });
-
-    test('handles error with normal debug logging for response errors', async () => {
-      const debugClient = new HttpClient({
-        baseURL: 'https://api.example.com',
-        debug: true,
-        debugLevel: 'normal',
-      });
-
-      const debugMock = new MockPlugin(debugClient.client);
-      debugMock.onGet('/error').reply(() => {
-        const error = new Error('Response Error');
-        (error as any).response = {
-          status: 500,
-          data: { message: 'Server Error' },
-        };
-        throw error;
-      });
-
-      await expect(debugClient.get('/error')).rejects.toThrow();
-      debugMock.restore();
     });
   });
 
@@ -2353,34 +2347,6 @@ describe('HttpClient', () => {
   });
 
   describe('Additional Coverage Tests', () => {
-    describe('Debug Logging in Retry Configuration', () => {
-      test('logs retry information when debug is enabled', async () => {
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
-        const debugClient = new HttpClient({
-          baseURL: 'https://api.example.com',
-          debug: true,
-          retryConfig: { retries: 2, delayFactor: 10 },
-        });
-
-        const debugMock = new MockPlugin(debugClient.client);
-        debugMock.onGet('/test').reply(500, { error: 'Server Error' });
-
-        try {
-          await debugClient.get('/test');
-        } catch (error) {
-          // Expected to fail
-        }
-
-        // The retry logging happens during the retry process, not in the final error
-        // So we just verify the client was created with debug enabled
-        expect(debugClient.debug).toBe(true);
-
-        consoleSpy.mockRestore();
-        debugMock.restore();
-      });
-    });
-
     describe('Per-Request Retry Configuration', () => {
       test('uses custom retryDelay function when provided', async () => {
         const customRetryDelay = jest.fn(() => 1);
@@ -2442,24 +2408,6 @@ describe('HttpClient', () => {
     });
 
     describe('Error Handling Edge Cases', () => {
-      test('handles verbose debug logging for setup errors', async () => {
-        const debugClient = new HttpClient({
-          baseURL: 'https://api.example.com',
-          debug: true,
-          debugLevel: 'verbose',
-        });
-
-        const debugMock = new MockPlugin(debugClient.client);
-        debugMock.onGet('/error').reply(() => {
-          const error = new Error('Setup Error');
-          // No request property
-          throw error;
-        });
-
-        await expect(debugClient.get('/error')).rejects.toThrow();
-        debugMock.restore();
-      });
-
       test('handles serialization error detection', async () => {
         // Test different serialization error patterns
         const serializationErrors = [
@@ -2589,37 +2537,6 @@ describe('HttpClient', () => {
         });
 
         expect(client.retryConfig.enableRetry).toBe(customEnableRetry);
-      });
-    });
-
-    describe('Error Handler Verbose Debugging', () => {
-      test('logs verbose error details when debugLevel is verbose', async () => {
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
-        const debugClient = new HttpClient({
-          baseURL: 'https://api.example.com',
-          debug: true,
-          debugLevel: 'verbose',
-        });
-
-        const debugMock = new MockPlugin(debugClient.client);
-        debugMock.onGet('/error').reply(() => {
-          const error = new Error('Setup Error');
-          throw error;
-        });
-
-        try {
-          await debugClient.get('/error');
-        } catch (error) {
-          // Expected to fail
-        }
-
-        // The verbose logging happens in the error handler
-        // We verify the client was created with verbose debug level
-        expect(debugClient.debugLevel).toBe('verbose');
-
-        consoleSpy.mockRestore();
-        debugMock.restore();
       });
     });
   });

@@ -3,8 +3,6 @@ import { AddressInfo } from 'node:net';
 import { HttpClient } from '../src/http-client';
 import { HttpError } from '../src/errors';
 
-jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
-
 /**
  * Real-network retry verification.
  *
