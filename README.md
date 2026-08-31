@@ -494,6 +494,10 @@ The `Retry-After` header can be:
 - A number (seconds to wait)
 - An HTTP date string (absolute time to retry)
 
+The resulting delay is clamped to ~24.8 days (`setTimeout`'s 32-bit signed-integer limit) - a
+larger or non-finite value is capped rather than silently firing almost instantly, which is what
+the underlying timer would otherwise do with an unbounded delay.
+
 #### Don't register `xior/plugins/error-retry` directly
 
 `retryConfig` is the one authoritative path for retry behavior on an `HttpClient` instance -

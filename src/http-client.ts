@@ -188,6 +188,22 @@ export interface HttpClientOptions {
   uploadProgressPlugin?: XiorPlugin;
 }
 
+/**
+ * The largest delay `setTimeout` honors (a 32-bit signed integer, in ms) - roughly 24.8 days.
+ * Node and browsers silently clamp anything larger (or non-finite, e.g. `Infinity`) down to ~0-1ms
+ * instead of throwing, so an unbounded `Retry-After` value would otherwise invert the documented
+ * "server-specified delay takes precedence" guarantee: a server asking for a long cool-down (a
+ * multi-week rate-limit suspension, say) would be retried almost instantly instead. Confirmed
+ * directly: `setTimeout(fn, 999999999000)` and `setTimeout(fn, Infinity)` both fire within ~1ms in
+ * Node, emitting a `TimeoutOverflowWarning`.
+ */
+const MAX_RETRY_AFTER_MS = 2_147_483_647;
+
+/** Clamps a parsed Retry-After delay (ms) into `[0, MAX_RETRY_AFTER_MS]`. */
+function clampRetryDelay(delayMs: number): number {
+  return Math.min(Math.max(delayMs, 0), MAX_RETRY_AFTER_MS);
+}
+
 export class HttpClient {
   client: XiorInstance;
   xiorConfig: HttpClientOptions['xiorConfig'];
@@ -403,15 +419,16 @@ export class HttpClient {
     // If it's a number (or string number), treat as seconds
     const asNumber = Number(retryAfter);
     if (!Number.isNaN(asNumber)) {
-      return asNumber * 1000; // Convert to milliseconds
+      // Clamp to [0, MAX_RETRY_AFTER_MS]: negative values (a malformed/adversarial header) become
+      // 0, and anything - including `Infinity` - past setTimeout's 32-bit limit is capped rather
+      // than silently firing almost instantly (see MAX_RETRY_AFTER_MS).
+      return clampRetryDelay(asNumber * 1000); // Convert to milliseconds
     }
 
     // Try parsing as HTTP date
     const asDate = new Date(retryAfter);
     if (!Number.isNaN(asDate.getTime())) {
-      // Clamp negative delays (past Retry-After dates) to 0 via Math.max (S7766)
-      // instead of a ternary that repeats the same comparison.
-      return Math.max(asDate.getTime() - Date.now(), 0);
+      return clampRetryDelay(asDate.getTime() - Date.now());
     }
 
     return null;

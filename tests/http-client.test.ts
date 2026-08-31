@@ -1180,6 +1180,28 @@ describe('HttpClient', () => {
       const result = (client as any).parseRetryAfter(pastDate.toUTCString());
       expect(result).toBe(0);
     });
+
+    // Regression tests: parseRetryAfter used to return an unbounded value, which - once handed to
+    // setTimeout by xior's error-retry plugin - silently overflows setTimeout's 32-bit signed-int
+    // limit and fires almost instantly instead of honoring the requested delay.
+    test('parseRetryAfter clamps an overflowing numeric value to the 32-bit setTimeout limit (regression)', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const result = (client as any).parseRetryAfter('999999999'); // ~31.7 years
+      expect(result).toBe(2_147_483_647);
+    });
+
+    test('parseRetryAfter clamps a non-finite numeric value (regression)', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const result = (client as any).parseRetryAfter('Infinity');
+      expect(result).toBe(2_147_483_647);
+    });
+
+    test('parseRetryAfter clamps an overflowing HTTP date value (regression)', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const farFuture = new Date(Date.now() + 999_999_999_000); // ~31.7 years out
+      const result = (client as any).parseRetryAfter(farFuture.toUTCString());
+      expect(result).toBe(2_147_483_647);
+    });
   });
 
   describe('Request Modification', () => {
