@@ -81,6 +81,35 @@ export function buildHeadersFromEntries(entries: Iterable<[string, string]>): He
 }
 
 /**
+ * Coerces a header value to a wire-safe string without relying on Object's default
+ * stringification (`[object Object]`), which Sonar flags (S6551) and which would be
+ * useless on the wire anyway.
+ *
+ * Strings pass through; numbers/booleans use `String(...)`; arrays are joined with
+ * commas (HTTP's multi-value convention); unexpected objects are JSON-serialized so
+ * we never accidentally send `[object Object]`.
+ *
+ * @param value - A single header value from xior's `Record<string, any>` headers map.
+ * @returns A string suitable for `setRequestHeader` / Node's `headers` option.
+ */
+export function stringifyHeaderValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => stringifyHeaderValue(item)).join(', ');
+  }
+  if (value !== null && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  // null / undefined / symbol / function - String() is fine for these primitives
+  return String(value);
+}
+
+/**
  * Builds a real, spec-correct XiorResponse from raw transport results. Constructs a genuine
  * `Headers`/`Response` (both globally available in Node 18+ and all target browsers) rather than
  * a duck-typed stand-in. `config`/`request` are both set to the same request-config object,
