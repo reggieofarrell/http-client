@@ -197,7 +197,12 @@ export class HttpClient {
   retryConfig: HttpClientRetryConfig;
   idempotencyConfig: IdempotencyConfig;
   errorMessageExtractor: ErrorMessageExtractor;
-  private hasUploadProgressPlugin: boolean;
+  /**
+   * Set once in the constructor from `config.uploadProgressPlugin` and never
+   * mutated afterward - `readonly` makes that invariant visible to readers and
+   * to Sonar (S2933).
+   */
+  private readonly hasUploadProgressPlugin: boolean;
 
   constructor(config: HttpClientOptions) {
     const backoff = config.retryConfig?.backoff || 'exponential';
