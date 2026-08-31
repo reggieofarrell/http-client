@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "CommonJS",
-    "outDir": "./dist/cjs"
+    "outDir": "./dist/cjs",
+    // TS 5.9 rejects bundler + CommonJS; override until a TS 6 upgrade allows that pairing.
+    "moduleResolution": "node"
   }
 }
