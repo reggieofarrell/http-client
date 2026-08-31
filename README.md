@@ -1738,6 +1738,12 @@ exact hooks that recreate it.
 
 ## Breaking Changes
 
+> **A note on 3.0.x:** `3.0.1` through `3.0.4` are fast-follow corrections to the `v3.0.0` rewrite
+> below, not independent changes of their own - real bugs and gaps (several found through later,
+> deeper review) that should have shipped as part of `3.0.0` itself. If you're adopting v3 fresh,
+> read `3.0.0`'s entry and this one together as "what v3 actually is," rather than as two separate
+> migrations.
+
 ### v3.0.4 - Logging moved to hooks; onError hook added
 
 **Removed:**
