@@ -143,6 +143,45 @@ describe('HttpClient real upload progress (Node transport) against a real server
     }
   });
 
+  test('a non-numeric caller-supplied Content-Length falls back to indeterminate progress, not NaN (regression)', async () => {
+    // Regression test: getContentLengthHeader used to pass an unparseable Content-Length header
+    // straight through as `total` without validating it, so every progress event reported
+    // `{ total: NaN, progress: NaN, lengthComputable: true }` instead of falling back to
+    // "unknown" the same way a missing header does. A malformed Content-Length is itself an
+    // HTTP framing error the server legitimately rejects (400) - that's expected and irrelevant
+    // here, since progress events are computed client-side as bytes are written, independent of
+    // how the server responds.
+    const { server, baseURL } = await startServer(() => 200);
+    const events: UploadProgressEvent[] = [];
+    const chunks = ['some-', 'data'];
+
+    try {
+      const client = new HttpClient({
+        baseURL,
+        uploadProgressPlugin: createUploadProgressPlugin(),
+      });
+      const stream = Readable.from(chunks);
+
+      await client
+        .post('/upload', stream, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': 'not-a-number',
+          },
+          realUploadProgress: event => events.push(event),
+        })
+        .catch(() => {});
+
+      expect(events.length).toBeGreaterThan(0);
+      expect(events.every(e => e.total === undefined)).toBe(true);
+      expect(events.every(e => e.progress === undefined)).toBe(true);
+      expect(events.every(e => e.lengthComputable === false)).toBe(true);
+      expect(events.every(e => Number.isFinite(e.loaded))).toBe(true);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   test('retryConfig re-uploads from scratch on each attempt, not a replay', async () => {
     const { server, baseURL, getReceivedBytes } = await startServer(count =>
       count < 3 ? 500 : 200

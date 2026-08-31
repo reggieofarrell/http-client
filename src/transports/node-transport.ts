@@ -72,7 +72,12 @@ const streamsAlreadyStartedReading = new WeakSet<Readable>();
 function getContentLengthHeader(request: XiorRequestConfig): number | undefined {
   for (const [key, value] of Object.entries(request.headers ?? {})) {
     if (key.toLowerCase() === 'content-length' && value !== undefined) {
-      return Number(stringifyHeaderValue(value));
+      const parsed = Number(stringifyHeaderValue(value));
+      // A non-numeric caller-supplied header falls back to "unknown", the same as if the header
+      // were absent, rather than flowing NaN into every progress event as `total`/`progress` -
+      // violating UploadProgressEvent's own contract that those fields are only ever present when
+      // the total is genuinely known.
+      return Number.isFinite(parsed) ? parsed : undefined;
     }
   }
   return undefined;
