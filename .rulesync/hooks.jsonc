@@ -3,6 +3,23 @@
   // that violate the low-latency SonarJS subset; the complete local profile is
   // enforced by Git hooks and `npm run lint`. Secret scanning intentionally stays
   // in Husky so agents do not pay its cost on every file operation.
+  //
+  // Every "command" below invokes scripts/agent-hooks/scan-edited-file.mjs BY BARE PATH (no
+  // node/bash/etc. in front of it) - this only works because the file has a `#!/usr/bin/env node`
+  // shebang AND its git-tracked executable bit is set (`git ls-files -s` should show 100755, not
+  // 100644). That bit is easy to lose silently - it never shows up in a normal content diff, and
+  // core.fileMode=false (common on Windows/CI) stops git from tracking it at all - which is
+  // exactly what happened here once already (this hook silently never ran until it was restored).
+  // `npm run check:hooks` (pre-push + CI) catches a recurrence automatically; see
+  // scripts/check-hook-permissions.mjs for why and how.
+  //
+  // Do NOT "fix" a lost executable bit by prefixing this command with `node` instead of
+  // restoring the bit. For the claudecode target specifically, rulesync auto-rewrites a bare
+  // relative command to use $CLAUDE_PROJECT_DIR (so the hook resolves correctly regardless of its
+  // cwd) - but only when the command has no interpreter in front of it. Prefixing with `node`
+  // silently suppresses that rewrite and leaves the hook on a plain relative path, which throws
+  // MODULE_NOT_FOUND unless the hook happens to run with the project root as cwd (confirmed
+  // directly). Restore the bit with `chmod +x`, not by changing this command.
   "version": 1,
   "hooks": {},
   "cursor": {
