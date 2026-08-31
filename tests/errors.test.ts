@@ -130,6 +130,23 @@ describe('errors', () => {
       const error = { message: null };
       expect(isTimeoutError(error)).toBe(false);
     });
+
+    test('detects ETIMEDOUT nested under .cause, matching a real Node fetch() TypeError (regression)', () => {
+      // Node's native fetch() wraps every connection-layer failure as
+      // TypeError('fetch failed', { cause }), with the real code nested under .cause - confirmed
+      // directly against a real refused connection.
+      const error = { name: 'TypeError', message: 'fetch failed', cause: { code: 'ETIMEDOUT' } };
+      expect(isTimeoutError(error)).toBe(true);
+    });
+
+    test('detects a timeout message nested under .cause (regression)', () => {
+      const error = {
+        name: 'TypeError',
+        message: 'fetch failed',
+        cause: { message: 'connect timeout after 5000ms' },
+      };
+      expect(isTimeoutError(error)).toBe(true);
+    });
   });
 
   describe('isAbortError', () => {
@@ -198,6 +215,14 @@ describe('errors', () => {
     test('handles error without code', () => {
       const error = {};
       expect(classifyNetworkErrorType(error)).toBe('network_error');
+    });
+
+    test('classifies a real Node fetch() connection failure via .cause.code (regression)', () => {
+      // A real Node fetch() TypeError has no top-level .code - the actual code is nested under
+      // .cause - confirmed directly against a refused local connection. Without falling back to
+      // .cause, this always fell through to the generic 'network_error' bucket.
+      const error = { name: 'TypeError', message: 'fetch failed', cause: { code: 'ECONNREFUSED' } };
+      expect(classifyNetworkErrorType(error)).toBe('connection_refused');
     });
   });
 
@@ -292,6 +317,37 @@ describe('errors', () => {
       const metadata = buildNetworkErrorMetadata(config, 'TestClient', error);
 
       expect(metadata.error.message).toBe('Unknown error');
+    });
+
+    test('reads the error code from .cause for a real Node fetch() TypeError (regression)', () => {
+      const config: XiorRequestConfig = {
+        method: 'GET',
+        url: '/test',
+        baseURL: 'https://api.example.com',
+        headers: {},
+      };
+
+      // Matches the actual shape of a real Node fetch() connection failure - confirmed directly
+      // against a refused local connection - rather than a legacy Node error with a top-level code.
+      const error = { name: 'TypeError', message: 'fetch failed', cause: { code: 'ECONNREFUSED' } };
+
+      const metadata = buildNetworkErrorMetadata(config, 'TestClient', error);
+
+      expect(metadata.error.code).toBe('ECONNREFUSED');
+      expect(metadata.error.type).toBe('connection_refused');
+    });
+
+    test('omits error.code entirely (not undefined) when no code is found anywhere', () => {
+      const config: XiorRequestConfig = {
+        method: 'GET',
+        url: '/test',
+        baseURL: 'https://api.example.com',
+        headers: {},
+      };
+
+      const metadata = buildNetworkErrorMetadata(config, 'TestClient', { message: 'boom' });
+
+      expect('code' in metadata.error).toBe(false);
     });
   });
 

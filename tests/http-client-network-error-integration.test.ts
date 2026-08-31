@@ -57,4 +57,26 @@ describe('HttpClient error classification against a real connection failure', ()
     // final classification: retries now fire for a real connection failure.
     expect(onRetry).toHaveBeenCalledTimes(2);
   });
+
+  test('a genuine connection-refused failure reports its real code, not undefined (regression)', async () => {
+    // Regression test: Node's native fetch() wraps every connection-layer failure as
+    // TypeError('fetch failed', { cause }), with the real code (ECONNREFUSED here) nested under
+    // .cause - never as a top-level .code. Without reading .cause, metadata.error.code was always
+    // undefined for every real Node fetch connection failure, and a genuine OS-level connect
+    // timeout would be misclassified as NetworkError instead of TimeoutError for the same reason.
+    const port = await getUnusedPort();
+    const client = new HttpClient({ baseURL: `http://127.0.0.1:${port}` });
+
+    let caught: unknown;
+    try {
+      await client.get('/whatever');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NetworkError);
+    const networkError = caught as NetworkError;
+    expect((networkError.metadata as any).error.code).toBe('ECONNREFUSED');
+    expect((networkError.metadata as any).error.type).toBe('connection_refused');
+  });
 });

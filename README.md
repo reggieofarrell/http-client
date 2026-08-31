@@ -243,6 +243,14 @@ If a URL contains path parameters that aren't provided via `pathParams`, an erro
 await client.get('/users/:userId', {});
 ```
 
+`:paramName` detection only looks at the path segment, before any `?` or `#` - a colon elsewhere
+in the URL (a connection string in a query value, a named anchor in a fragment) is left alone:
+
+```typescript
+// No pathParams needed - the colons after "?" are untouched
+await client.get('/redirect?db=redis://user:pass@host:6379');
+```
+
 ### Query Parameters
 
 Pass query parameters via the `params` property (inherited from `XiorRequestConfig` - matches axios's own convention, which xior keeps for compatibility):
@@ -493,6 +501,10 @@ The client automatically respects `Retry-After` headers from server responses. W
 The `Retry-After` header can be:
 - A number (seconds to wait)
 - An HTTP date string (absolute time to retry)
+
+The resulting delay is clamped to ~24.8 days (`setTimeout`'s 32-bit signed-integer limit) - a
+larger or non-finite value is capped rather than silently firing almost instantly, which is what
+the underlying timer would otherwise do with an unbounded delay.
 
 #### Don't register `xior/plugins/error-retry` directly
 
@@ -1108,6 +1120,14 @@ const { data } = await client.post('/users', { name: 'John' });
 #### Error Handling
 
 The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method, which has been refactored to provide better flexibility for child classes.
+
+**If `beforeRequest` or `afterResponse` itself throws, that exception propagates out of
+`request()` as-is** - it does not go through `errorHandler`/`processError` and is never one of
+this library's error types (`HttpError`, `NetworkError`, etc.). That's deliberate: an exception
+from your own hook is a bug in your hook logic, not a transport failure, so there's no correct
+error category to force it into. `error instanceof HttpError` (or any of the other error classes)
+will always be `false` for a hook failure - that's how you can tell it apart from a real request
+failure in a `catch` block.
 
 **`errorHandler` must always throw.** There's no fallback response for a failed request to resolve
 with, so an override must end every code path in a `throw` - either `throw

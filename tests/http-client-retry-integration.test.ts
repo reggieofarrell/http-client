@@ -1,6 +1,7 @@
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { HttpClient } from '../src/http-client';
+import { HttpError } from '../src/errors';
 
 jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
 
@@ -92,6 +93,56 @@ describe('HttpClient retries against a real server', () => {
       await expect(client.get('/flaky')).rejects.toThrow();
 
       expect(getRequestCount()).toBe(1);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test('a per-request retryConfig.retries override retries even when the instance default is 0 (regression)', async () => {
+    // Regression test: HttpClient's constructor used to register xior's error-retry plugin only
+    // when `retryConfig.retries > 0` *at construction time* - so a per-request override on an
+    // instance built with the default (0) retries silently did nothing, because the plugin was
+    // never in xior's plugin chain at all for that request to fall into.
+    const { server, baseURL, getRequestCount } = await startServer(() => 500);
+
+    try {
+      const client = new HttpClient({ baseURL }); // instance-level retries left at the default (0)
+
+      await expect(
+        client.get('/flaky', { retryConfig: { retries: 3, delayFactor: 1 } })
+      ).rejects.toThrow();
+
+      expect(getRequestCount()).toBe(4); // 1 initial attempt + 3 retries
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test('the thrown error isRetriable matches the per-request enableRetry override that actually ran (regression)', async () => {
+    // Regression test: the thrown HttpError's isRetriable used to always be recomputed from the
+    // instance-level enableRetry, ignoring a per-request enableRetry override that the live retry
+    // loop actually used - so a request that really was retried (per its own override) could still
+    // throw an error reporting isRetriable: false, and vice versa.
+    const { server, baseURL, getRequestCount } = await startServer(() => 400);
+
+    try {
+      const client = new HttpClient({
+        baseURL,
+        retryConfig: { retries: 1, delayFactor: 1, enableRetry: () => false }, // instance: never retry
+      });
+
+      let caught: unknown;
+      try {
+        await client.get('/flaky', {
+          retryConfig: { retries: 2, delayFactor: 1, enableRetry: () => true }, // per-request: always retry
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(getRequestCount()).toBe(3); // 1 initial attempt + 2 retries - the override actually ran
+      expect(caught).toBeInstanceOf(HttpError);
+      expect((caught as InstanceType<typeof HttpError>).isRetriable).toBe(true);
     } finally {
       await closeServer(server);
     }

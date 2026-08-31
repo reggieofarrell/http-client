@@ -511,4 +511,31 @@ describe('HttpClient Idempotency', () => {
       expect(calls?.[0]?.headers?.['Idempotency-Key']).toBe('local-custom-key');
     });
   });
+
+  describe('Config Object Reuse (regression)', () => {
+    // Regression test: request() used to mutate the caller's own config object in place -
+    // applyIdempotencyHeaders reassigned config.headers to include the generated key, then
+    // deleted config.idempotencyConfig once it was done with it. Reusing the same config object
+    // for a second, financially-distinct request meant the second call fell back to the instance
+    // default (disabled) and skipped regenerating the header - but the stale header from the
+    // first call was still sitting on the shared object, so both requests went out with the
+    // identical Idempotency-Key.
+    it('generates a fresh key per call even when the same config object is reused', async () => {
+      client = new HttpClient({ baseURL: 'https://api.example.com' }); // idempotency disabled by default
+      mock = new MockPlugin(client.client);
+      mock.onPost('/charge').reply(200, { success: true });
+
+      const sharedConfig = { idempotencyConfig: { enabled: true } };
+      await client.post('/charge', { amount: 100 }, sharedConfig);
+      await client.post('/charge', { amount: 200 }, sharedConfig);
+
+      const calls = mock.history.post;
+      const key1 = calls?.[0]?.headers?.['Idempotency-Key'];
+      const key2 = calls?.[1]?.headers?.['Idempotency-Key'];
+
+      expect(key1).toBeDefined();
+      expect(key2).toBeDefined();
+      expect(key1).not.toBe(key2);
+    });
+  });
 });

@@ -95,9 +95,14 @@ it that way (see "Working mode" below).
   (intersect server profile with `eslint-plugin-sonarjs`). See `docs/development/sonarqube.md`.
   The server quality gate is **new-code-only**; Jest `coverageThreshold` remains the coverage
   authority.
+- Hook permissions: `npm run check:hooks` verifies every agent-hook command invoked by bare path
+  (no interpreter) in `.claude/settings.json`/`.cursor/hooks.json`/`.codex/hooks.json` still
+  points at an executable file — the executable bit is invisible to a normal content diff, so
+  nothing else catches it losing that bit. `npm run test:hook-permissions` unit-tests the checker
+  itself. See `scripts/check-hook-permissions.mjs`.
 - Full local gate (mirrors CI): `npm run check:format && npm run lint && npm run rules:check &&
-  npm run test:sonar-rules && npm run test:types && npm test -- --coverage && npm run build &&
-  npm run check:build && npm run check:audit`.
+  npm run check:hooks && npm run test:sonar-rules && npm run test:types && npm test -- --coverage
+  && npm run build && npm run check:build && npm run check:audit`.
 
 ## Tooling
 

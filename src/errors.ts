@@ -385,18 +385,37 @@ export function isAbortError(error: any): boolean {
 }
 
 /**
+ * Reads a network-error code from the error itself, falling back to `.cause`. Node's native
+ * `fetch()` (and therefore `undici`, and therefore xior) wraps every connection-layer failure as
+ * `TypeError('fetch failed', { cause })`, with the actual code (ECONNREFUSED, ENOTFOUND,
+ * ETIMEDOUT, ...) nested under `.cause`, not on the `TypeError` itself - confirmed directly
+ * against a real refused connection: `error.code` is `undefined` while `error.cause.code` is
+ * `'ECONNREFUSED'`. Without this fallback, every real Node fetch connection failure reports as a
+ * generic, uncoded network error and a genuine OS-level connect timeout is misclassified as
+ * `NetworkError` instead of `TimeoutError`.
+ * @param error - The error to inspect
+ * @returns The underlying error code, if any
+ */
+function getUnderlyingErrorCode(error: any): string | undefined {
+  return error?.code ?? error?.cause?.code;
+}
+
+/**
  * Checks if an error is a timeout error based on error code or message
  * @param error - The error to check
  * @returns true if the error indicates a timeout
  */
 export function isTimeoutError(error: any): boolean {
-  // Check error code
-  if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
+  // Check error code (including a Node fetch() TypeError's nested .cause.code)
+  const code = getUnderlyingErrorCode(error);
+  if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') {
     return true;
   }
 
-  // Check error message
-  const message = error.message?.toLowerCase() || '';
+  // Check error message (including a Node fetch() TypeError's nested .cause.message) - a real
+  // fetch() TypeError's top-level message is always the generic 'fetch failed', so both have to
+  // be checked, not just whichever is truthy first.
+  const message = `${error.message || ''} ${error.cause?.message || ''}`.toLowerCase();
   if (
     message.includes('timeout') ||
     message.includes('timed out') ||
@@ -419,7 +438,7 @@ export function isTimeoutError(error: any): boolean {
  * @returns A string describing the error type
  */
 export function classifyNetworkErrorType(error: any): string {
-  const code = error.code;
+  const code = getUnderlyingErrorCode(error);
 
   if (isAbortError(error)) {
     return 'aborted';
@@ -497,11 +516,14 @@ export function buildNetworkErrorMetadata(
   retryCount?: number
 ): NetworkErrorMetadata {
   const baseMetadata = buildErrorMetadata(config, clientName, retryCount);
+  const code = getUnderlyingErrorCode(error);
 
   return {
     ...baseMetadata,
     error: {
-      code: error.code,
+      // Omit the key entirely rather than assigning `undefined` - `code` is `string | undefined`
+      // but the target type declares it as optional-`string` (exactOptionalPropertyTypes).
+      ...(code !== undefined && { code }),
       message: error.message || 'Unknown error',
       type: classifyNetworkErrorType(error),
     },

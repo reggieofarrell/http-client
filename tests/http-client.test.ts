@@ -5,6 +5,7 @@ import {
   HttpError,
   SerializationError,
   AbortError,
+  HttpClientError,
   HttpErrorCategory,
   classifyErrorForRetry,
   isSerializationError,
@@ -491,6 +492,49 @@ describe('HttpClient', () => {
       });
 
       expect(response.data.success).toBe(true);
+    });
+
+    test('does not mistake a colon in the query string for a path parameter (regression)', async () => {
+      // Regression test: the path-param regex used to scan the entire URL, including the query
+      // string and fragment - a redirect URL or connection string containing "://user:pass@host"
+      // in a query value was misidentified as an unresolved :pass path parameter and threw.
+      mock.onGet('/redirect').reply(200, { success: true });
+
+      const response = await client.get('/redirect?db=redis://user:pass@host:6379');
+      expect(response.data.success).toBe(true);
+    });
+
+    test('does not mistake a colon in the URL fragment for a path parameter (regression)', async () => {
+      mock.onGet('/docs').reply(200, { success: true });
+
+      const response = await client.get('/docs#section:intro');
+      expect(response.data.success).toBe(true);
+    });
+
+    test('substitutes a real path parameter while leaving a colon in the query string alone (regression)', async () => {
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const response = await client.get('/users/:id?ref=twitter:card', {
+        pathParams: { id: '123' },
+      });
+
+      expect(response.data.userId).toBe('123');
+    });
+
+    test('reusing the same config object across two calls does not throw (regression)', async () => {
+      // Regression test: request() used to delete config.pathParams off of the caller's own
+      // config object after substitution. Reusing that object for a second call against the same
+      // :id-templated URL threw "Missing required path parameter" even though the caller never
+      // removed pathParams themselves - a natural "poll until done" loop that builds its config
+      // once outside the loop broke on the second iteration.
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const sharedConfig = { pathParams: { userId: '123' } };
+      const first = await client.get('/users/:userId', sharedConfig);
+      expect(first.data).toEqual({ userId: '123' });
+
+      const second = await client.get('/users/:userId', sharedConfig);
+      expect(second.data).toEqual({ userId: '123' });
     });
   });
 
@@ -1180,6 +1224,28 @@ describe('HttpClient', () => {
       const result = (client as any).parseRetryAfter(pastDate.toUTCString());
       expect(result).toBe(0);
     });
+
+    // Regression tests: parseRetryAfter used to return an unbounded value, which - once handed to
+    // setTimeout by xior's error-retry plugin - silently overflows setTimeout's 32-bit signed-int
+    // limit and fires almost instantly instead of honoring the requested delay.
+    test('parseRetryAfter clamps an overflowing numeric value to the 32-bit setTimeout limit (regression)', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const result = (client as any).parseRetryAfter('999999999'); // ~31.7 years
+      expect(result).toBe(2_147_483_647);
+    });
+
+    test('parseRetryAfter clamps a non-finite numeric value (regression)', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const result = (client as any).parseRetryAfter('Infinity');
+      expect(result).toBe(2_147_483_647);
+    });
+
+    test('parseRetryAfter clamps an overflowing HTTP date value (regression)', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const farFuture = new Date(Date.now() + 999_999_999_000); // ~31.7 years out
+      const result = (client as any).parseRetryAfter(farFuture.toUTCString());
+      expect(result).toBe(2_147_483_647);
+    });
   });
 
   describe('Request Modification', () => {
@@ -1440,6 +1506,55 @@ describe('HttpClient', () => {
 
       await expect(customClient.get('/error')).rejects.toThrow();
       expect(customClient.afterResponse).not.toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('a beforeRequest override that throws propagates raw, not through the error hierarchy', async () => {
+      // Documents the contract in beforeRequest's own doc comment: an exception from a hook
+      // override is the hook's own bug, not a transport failure, so it's never wrapped as one of
+      // this library's error types.
+      class CustomClient extends HttpClient {
+        protected async beforeRequest(): Promise<void> {
+          throw new RangeError('boom');
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      let caught: unknown;
+      try {
+        await customClient.get('/test');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(RangeError);
+      expect(caught).not.toBeInstanceOf(HttpClientError);
+      customMock.restore();
+    });
+
+    test('an afterResponse override that throws propagates raw, not through the error hierarchy', async () => {
+      class CustomClient extends HttpClient {
+        protected async afterResponse(): Promise<void> {
+          throw new RangeError('boom');
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      let caught: unknown;
+      try {
+        await customClient.get('/test');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(RangeError);
+      expect(caught).not.toBeInstanceOf(HttpClientError);
       customMock.restore();
     });
 
@@ -2637,13 +2752,42 @@ describe('HttpClient', () => {
       if (processedError instanceof HttpError) {
         expect(processedError.isRetriable).toBe(true);
       }
-      expect(customClient.retryConfig.enableRetry).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          url: '/test',
-        }),
-        error
-      );
+      // Called with the real error.config (what the live retry loop actually evaluated), not a
+      // separately reconstructed stand-in - see the "isRetriable reflects the per-request
+      // enableRetry override" regression test below for why this distinction matters.
+      expect(customClient.retryConfig.enableRetry).toHaveBeenCalledWith(error.config, error);
+    });
+
+    test('isRetriable reflects the per-request enableRetry override, not the instance default (regression)', () => {
+      // Regression test: processHttpResponseError used to always recompute isRetriable via the
+      // instance-level retryConfig.enableRetry, ignoring a per-request enableRetry override that
+      // the live retry loop actually used - so a request whose per-request override forced a
+      // retry (or suppressed one) could still throw an error whose `isRetriable` disagreed with
+      // what really happened.
+      class TestClientWithRetry extends HttpClient {
+        public testProcessError(error: any, reqType: RequestType, url: string) {
+          return this.processError(error, reqType, url);
+        }
+      }
+
+      const customClient = new TestClientWithRetry({
+        baseURL: 'https://api.example.com',
+        retryConfig: { enableRetry: () => false }, // instance default says "never retry"
+      });
+
+      // `error.config.enableRetry` is what applyPerRequestRetryConfig sets on the real request
+      // config for a per-request override - it's what the live retry loop actually consulted.
+      const error = {
+        response: { status: 400, statusText: 'Bad Request', data: {} },
+        config: { headers: {}, enableRetry: () => true }, // per-request override says "always retry"
+      };
+
+      const processedError = customClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(HttpError);
+      if (processedError instanceof HttpError) {
+        expect(processedError.isRetriable).toBe(true);
+      }
     });
   });
 

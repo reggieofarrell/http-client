@@ -188,6 +188,22 @@ export interface HttpClientOptions {
   uploadProgressPlugin?: XiorPlugin;
 }
 
+/**
+ * The largest delay `setTimeout` honors (a 32-bit signed integer, in ms) - roughly 24.8 days.
+ * Node and browsers silently clamp anything larger (or non-finite, e.g. `Infinity`) down to ~0-1ms
+ * instead of throwing, so an unbounded `Retry-After` value would otherwise invert the documented
+ * "server-specified delay takes precedence" guarantee: a server asking for a long cool-down (a
+ * multi-week rate-limit suspension, say) would be retried almost instantly instead. Confirmed
+ * directly: `setTimeout(fn, 999999999000)` and `setTimeout(fn, Infinity)` both fire within ~1ms in
+ * Node, emitting a `TimeoutOverflowWarning`.
+ */
+const MAX_RETRY_AFTER_MS = 2_147_483_647;
+
+/** Clamps a parsed Retry-After delay (ms) into `[0, MAX_RETRY_AFTER_MS]`. */
+function clampRetryDelay(delayMs: number): number {
+  return Math.min(Math.max(delayMs, 0), MAX_RETRY_AFTER_MS);
+}
+
 export class HttpClient {
   client: XiorInstance;
   xiorConfig: HttpClientOptions['xiorConfig'];
@@ -288,23 +304,30 @@ export class HttpClient {
       client.plugins.use(config.uploadProgressPlugin);
     }
 
-    // Apply error retry plugin if retries are enabled
-    if (this.retryConfig.retries && this.retryConfig.retries > 0) {
-      const pluginOptions: any = {
-        retryTimes: this.retryConfig.retries,
-        retryInterval: this.buildRetryInterval(),
-      };
+    // Always registered, even when retryConfig.retries is 0 (the default) - xior's error-retry
+    // plugin reads retryTimes/retryInterval/enableRetry/onRetry fresh from each request's own
+    // config (falling back to these plugin-creation-time values only when a request doesn't set
+    // its own), so a per-request `retryConfig.retries` override needs the plugin to already be in
+    // the chain to have any effect. Registering it conditionally on the instance-level default
+    // meant a per-request override on an instance built with the default retries silently did
+    // nothing - confirmed directly: an instance built with no retryConfig, given a per-request
+    // `retryConfig: { retries: 3 }`, made exactly 1 request instead of 4. With retryTimes: 0 (the
+    // default), a failure is still thrown on the very first attempt, so this changes nothing for
+    // an instance that never opts into retries at any level.
+    const pluginOptions: any = {
+      retryTimes: this.retryConfig.retries,
+      retryInterval: this.buildRetryInterval(),
+    };
 
-      if (this.retryConfig.onRetry) {
-        pluginOptions.onRetry = this.retryConfig.onRetry;
-      }
-
-      if (this.retryConfig.enableRetry !== undefined) {
-        pluginOptions.enableRetry = this.retryConfig.enableRetry;
-      }
-
-      client.plugins.use(errorRetryPlugin(pluginOptions));
+    if (this.retryConfig.onRetry) {
+      pluginOptions.onRetry = this.retryConfig.onRetry;
     }
+
+    if (this.retryConfig.enableRetry !== undefined) {
+      pluginOptions.enableRetry = this.retryConfig.enableRetry;
+    }
+
+    client.plugins.use(errorRetryPlugin(pluginOptions));
 
     this.client = client;
   }
@@ -396,15 +419,16 @@ export class HttpClient {
     // If it's a number (or string number), treat as seconds
     const asNumber = Number(retryAfter);
     if (!Number.isNaN(asNumber)) {
-      return asNumber * 1000; // Convert to milliseconds
+      // Clamp to [0, MAX_RETRY_AFTER_MS]: negative values (a malformed/adversarial header) become
+      // 0, and anything - including `Infinity` - past setTimeout's 32-bit limit is capped rather
+      // than silently firing almost instantly (see MAX_RETRY_AFTER_MS).
+      return clampRetryDelay(asNumber * 1000); // Convert to milliseconds
     }
 
     // Try parsing as HTTP date
     const asDate = new Date(retryAfter);
     if (!Number.isNaN(asDate.getTime())) {
-      // Clamp negative delays (past Retry-After dates) to 0 via Math.max (S7766)
-      // instead of a ternary that repeats the same comparison.
-      return Math.max(asDate.getTime() - Date.now(), 0);
+      return clampRetryDelay(asDate.getTime() - Date.now());
     }
 
     return null;
@@ -451,10 +475,19 @@ export class HttpClient {
     // across requests and skip matches. `\w` is `[A-Za-z0-9_]` without the `u` flag.
     const paramPattern = /:([a-zA-Z_]\w*)/g;
 
+    // Path parameters only ever belong in the path segment - scanning the whole URL also matched
+    // colon-then-letter runs inside the query string or fragment (e.g. a connection string like
+    // `?db=redis://user:pass@host`, or a fragment like `#section:intro`), misidentifying them as
+    // unresolved :paramName placeholders and throwing on a perfectly valid request. Split the
+    // query/fragment off first and leave it untouched.
+    const queryOrFragmentIndex = url.search(/[?#]/);
+    const pathPart = queryOrFragmentIndex === -1 ? url : url.slice(0, queryOrFragmentIndex);
+    const rest = queryOrFragmentIndex === -1 ? '' : url.slice(queryOrFragmentIndex);
+
     // If no pathParams provided, return URL as-is
     if (!pathParams || Object.keys(pathParams).length === 0) {
-      // Check if URL contains any :paramName patterns - if so, throw error
-      const matches = url.match(paramPattern);
+      // Check if the path contains any :paramName patterns - if so, throw error
+      const matches = pathPart.match(paramPattern);
       if (matches && matches.length > 0) {
         const missingParams = matches.map(match => match.substring(1)); // Remove the :
         throw new Error(
@@ -465,7 +498,7 @@ export class HttpClient {
     }
 
     // Replace each :paramName with its URL-encoded value from pathParams
-    return url.replaceAll(paramPattern, (_match, paramName: string) => {
+    const substitutedPath = pathPart.replaceAll(paramPattern, (_match, paramName: string) => {
       if (!(paramName in pathParams)) {
         throw new Error(
           `Missing required path parameter: ${paramName}. Provide value via pathParams.${paramName}`
@@ -478,6 +511,8 @@ export class HttpClient {
       // encodeURIComponent encodes everything except: A-Z a-z 0-9 - _ . ! ~ * ' ( )
       return encodeURIComponent(stringValue);
     });
+
+    return substitutedPath + rest;
   }
 
   /**
@@ -508,6 +543,18 @@ export class HttpClient {
     data?: any,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
+    // Shallow-clone before any mutation below: applyPathParams/applyPerRequestRetryConfig/
+    // applyIdempotencyHeaders all delete trigger fields (pathParams, retryConfig,
+    // idempotencyKey/idempotencyConfig) off of `config` once they've used them, and
+    // applyIdempotencyHeaders reassigns `config.headers` to a new object carrying the generated
+    // key. Without this clone, all of that mutates the SAME object reference the caller passed
+    // in - so reusing one config object across two calls (a natural pattern: a shared options
+    // object in a loop or helper) either throws on the second call (pathParams looks "missing"
+    // because it was deleted after call 1) or silently resends call 1's stale, now-unregenerable
+    // Idempotency-Key header (idempotencyConfig was deleted, so call 2 can't tell it should
+    // generate a fresh one - but the header from call 1 is still sitting on the shared object).
+    // Cloning isolates every call's derived state from the caller's own object.
+    config = { ...config };
     let req: XiorResponse<T> | undefined;
 
     if (config.realUploadProgress && !this.hasUploadProgressPlugin) {
@@ -771,6 +818,13 @@ export class HttpClient {
    * and perform actions before the request is sent. You can modify the `data`
    * and `config` objects directly as they are passed by reference.
    *
+   * If this override throws, the exception propagates out of `request()` as-is - it does NOT go
+   * through `errorHandler`/`processError` and is never one of this library's error types
+   * (`HttpError`, `NetworkError`, etc.). That's deliberate: an exception here comes from your own
+   * hook logic, not the transport, so there's no correct error category to force it into.
+   * `catch (err) { err instanceof HttpError }` will always be `false` for a `beforeRequest`
+   * failure - that's how you can tell it apart from a real request failure.
+   *
    * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
    * @param url - The request URL
    * @param data - The request data (mutable)
@@ -796,6 +850,13 @@ export class HttpClient {
    * Override this method in your extending class to modify response data
    * and perform actions after receiving a successful response. You can modify
    * the `response.data` directly as it is passed by reference.
+   *
+   * Only called for a successful (already-resolved) response, and only after the underlying
+   * request has genuinely succeeded - so if this override throws, that exception propagates out
+   * of `request()` as-is, the same way a `beforeRequest` failure does (see its doc comment): not
+   * through `errorHandler`, and not as one of this library's error types. A raw exception here
+   * tells you the request itself succeeded but your own post-processing failed - distinct from a
+   * request failure, which always throws one of `HttpError`/`NetworkError`/etc.
    *
    * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
    * @param url - The request URL
@@ -870,9 +931,18 @@ export class HttpClient {
     const extractedMessage = this.extractErrorMessage(error.response, extractor);
     const message = extractedMessage || statusText;
 
+    // `error.config` is the actual config xior's error-retry plugin evaluated for the live retry
+    // loop - the same object a per-request `retryConfig.enableRetry` override was merged onto (see
+    // `applyPerRequestRetryConfig`). Preferring it over `this.retryConfig.enableRetry` (and over
+    // the reconstructed `requestConfig`) means the isRetriable computed here always matches what
+    // actually happened during retries, instead of silently falling back to the instance-level
+    // default's answer for a request that used a per-request override.
+    const effectiveConfig = (error.config as HttpClientRequestConfig | undefined) ?? requestConfig;
+    const effectiveEnableRetry = effectiveConfig.enableRetry ?? this.retryConfig.enableRetry;
+
     let isRetriable: boolean | undefined;
-    if (this.retryConfig.enableRetry && typeof this.retryConfig.enableRetry === 'function') {
-      isRetriable = this.retryConfig.enableRetry(requestConfig, error);
+    if (effectiveEnableRetry && typeof effectiveEnableRetry === 'function') {
+      isRetriable = effectiveEnableRetry(effectiveConfig, error);
     }
 
     // Assemble a single HttpErrorOptions object (named fields at the call site) rather
