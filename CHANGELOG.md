@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.3](https://github.com/reggieofarrell/http-client/compare/v3.0.2...v3.0.3) (2026-08-31)
+
+
+### Fixed
+
+* clamp Retry-After delays to setTimeout's 32-bit limit ([a474b2f](https://github.com/reggieofarrell/http-client/commit/a474b2f38f7dc9edf10aff921fc39a6fe2237254))
+* derive thrown HttpError.isRetriable from the enableRetry that actually ran ([7e2b360](https://github.com/reggieofarrell/http-client/commit/7e2b360f8bad8ac2bd8931642183b6d5fa5e8877))
+* fall back to indeterminate progress for an unparseable Content-Length ([66516f0](https://github.com/reggieofarrell/http-client/commit/66516f0b5ca2c5e1b4b9ad66533ebdb665191f54))
+* honor per-request retryConfig.retries when the instance default is 0 ([48622bb](https://github.com/reggieofarrell/http-client/commit/48622bb784e90b2d3f00a9ed1ccae91bb41a02bb))
+* make scan-edited-file.mjs executable so the PostToolUse hook can run it ([8a5eeb0](https://github.com/reggieofarrell/http-client/commit/8a5eeb0592424e25190d68c31372dc3c5441671b))
+* only flag genuine cycles as [Circular], not shared references ([57e59ac](https://github.com/reggieofarrell/http-client/commit/57e59aca22fc48d27466d172c83e84622b135e0f))
+* read network error codes from .cause for real Node fetch() failures ([4993208](https://github.com/reggieofarrell/http-client/commit/49932081846dd969df7a6d4815b975e59748e907))
+* scope :paramName detection to the path segment, not the whole URL ([cdecd65](https://github.com/reggieofarrell/http-client/commit/cdecd65b3bde5eefefeef16356dbc1b3aef7565b))
+* stop mutating the caller's own config object across requests ([21f39bc](https://github.com/reggieofarrell/http-client/commit/21f39bc0b55662b2785ca8a09ff8fe7a046de019))
+* use Array.prototype.at() in safeStringify's ancestor check ([6539387](https://github.com/reggieofarrell/http-client/commit/6539387cb7dcac7f12cd0f274e4911cbb09ad1bd))
+
+
+### Documentation
+
+* clarify that a beforeRequest/afterResponse throw bypasses the error hierarchy ([5587465](https://github.com/reggieofarrell/http-client/commit/5587465a9e3c788299702725b5436fadf9bbd32b))
+* warn in hooks.jsonc against masking the exec-bit issue with a node prefix ([c810388](https://github.com/reggieofarrell/http-client/commit/c810388ccb032a2c50bde6d4127780970e602d7a))
+
 ## [3.0.2](https://github.com/reggieofarrell/http-client/compare/v3.0.1...v3.0.2) (2026-08-31)
 
 
