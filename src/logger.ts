@@ -5,7 +5,10 @@
 const color =
   (colorCode: string) =>
   (text: string): string => {
-    if (typeof (globalThis as any).window === 'undefined') {
+    // Prefer a direct undefined check over `typeof` (S7741). `globalThis.window`
+    // is a property access, so it cannot throw ReferenceError the way a bare
+    // undeclared identifier would.
+    if ((globalThis as { window?: unknown }).window === undefined) {
       return `\x1b[${colorCode}m${text}\x1b[0m`;
     }
     return text;
@@ -60,9 +63,12 @@ const safeStringify = (obj: any, indent = 2): string => {
 };
 
 /**
- * Logs data - creates colorized console output for local development
+ * Logs data - creates colorized console output for local development.
+ *
+ * Both parameters are optional with defaults so the defaulted `title` is not
+ * followed by a required `data` (S1788: default parameters should be last).
  */
-export const logData = (title = '', data: any) => {
+export const logData = (title = '', data: unknown = undefined) => {
   console.log('');
   console.log(cyan(`== ${title} ==`));
 
