@@ -532,6 +532,18 @@ export class HttpClient {
     data?: any,
     config: HttpClientRequestConfig = {}
   ): Promise<HttpClientResponse<T>> {
+    // Shallow-clone before any mutation below: applyPathParams/applyPerRequestRetryConfig/
+    // applyIdempotencyHeaders all delete trigger fields (pathParams, retryConfig,
+    // idempotencyKey/idempotencyConfig) off of `config` once they've used them, and
+    // applyIdempotencyHeaders reassigns `config.headers` to a new object carrying the generated
+    // key. Without this clone, all of that mutates the SAME object reference the caller passed
+    // in - so reusing one config object across two calls (a natural pattern: a shared options
+    // object in a loop or helper) either throws on the second call (pathParams looks "missing"
+    // because it was deleted after call 1) or silently resends call 1's stale, now-unregenerable
+    // Idempotency-Key header (idempotencyConfig was deleted, so call 2 can't tell it should
+    // generate a fresh one - but the header from call 1 is still sitting on the shared object).
+    // Cloning isolates every call's derived state from the caller's own object.
+    config = { ...config };
     let req: XiorResponse<T> | undefined;
 
     if (config.realUploadProgress && !this.hasUploadProgressPlugin) {

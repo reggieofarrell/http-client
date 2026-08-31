@@ -492,6 +492,22 @@ describe('HttpClient', () => {
 
       expect(response.data.success).toBe(true);
     });
+
+    test('reusing the same config object across two calls does not throw (regression)', async () => {
+      // Regression test: request() used to delete config.pathParams off of the caller's own
+      // config object after substitution. Reusing that object for a second call against the same
+      // :id-templated URL threw "Missing required path parameter" even though the caller never
+      // removed pathParams themselves - a natural "poll until done" loop that builds its config
+      // once outside the loop broke on the second iteration.
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const sharedConfig = { pathParams: { userId: '123' } };
+      const first = await client.get('/users/:userId', sharedConfig);
+      expect(first.data).toEqual({ userId: '123' });
+
+      const second = await client.get('/users/:userId', sharedConfig);
+      expect(second.data).toEqual({ userId: '123' });
+    });
   });
 
   describe('Error Handling', () => {
