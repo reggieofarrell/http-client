@@ -1,8 +1,6 @@
 import { HttpClient, RequestType } from '../src/http-client';
 import MockPlugin from 'xior/plugins/mock';
 
-jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
-
 describe('HttpClient Idempotency', () => {
   let client: HttpClient;
   let mock: MockPlugin;

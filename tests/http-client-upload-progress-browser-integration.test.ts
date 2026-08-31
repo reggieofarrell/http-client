@@ -47,8 +47,6 @@ import { HttpError } from '../src/errors';
 import { createUploadProgressPlugin, UploadProgressEvent } from '../src/upload-progress';
 import { createUploadProgressPlugin as createBrowserOnlyUploadProgressPlugin } from '../src/upload-progress.browser';
 
-jest.mock('../src/logger', () => ({ logData: jest.fn(), logInfo: jest.fn() }));
-
 /**
  * Real upload-progress verification for the browser transport (XMLHttpRequest), against a real
  * server. jsdom's XMLHttpRequest implementation makes genuine network requests (it isn't a mock),

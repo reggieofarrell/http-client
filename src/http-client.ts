@@ -1,7 +1,6 @@
 import xior from 'xior';
 import type { XiorError, XiorInstance, XiorPlugin, XiorRequestConfig, XiorResponse } from 'xior';
 import errorRetryPlugin from 'xior/plugins/error-retry';
-import { logData } from './logger.js';
 import type { UploadProgressEvent } from './upload-progress.js';
 import {
   NetworkError,
@@ -149,12 +148,16 @@ export interface HttpClientOptions {
    */
   baseURL: string;
   /**
-   * Whether to log request and response details
+   * A flag for your own use - this library does not log anything itself. Read
+   * `this.debug`/`this.debugLevel` inside your own `beforeRequest`/`afterResponse`/`onError`
+   * overrides to decide what (and whether) to log, with whatever logger you want. See the
+   * README's "Debugging" section for a worked example.
    */
   debug?: boolean;
   /**
-   * Debug level. 'normal' will log request and response data. 'verbose' will
-   * log all xior properties for the request and response
+   * A granularity flag for your own use, alongside `debug` - this library does not interpret it
+   * itself. 'normal' vs. 'verbose' is a convention your own hook overrides can apply (e.g. logging
+   * just the request body vs. the full config), not a built-in behavior.
    */
   debugLevel?: 'normal' | 'verbose';
   /**
@@ -228,13 +231,9 @@ export class HttpClient {
 
     const defaultRetryConfig: HttpClientRetryConfig = {
       retries: 0,
-      onRetry: (requestConfig, error, retryCount) => {
-        if (this.debug) {
-          console.log(
-            `[${name}] Retry #${retryCount} for ${requestConfig.baseURL}${requestConfig.url} due to error: ${error.message}`
-          );
-        }
-      },
+      // No-op by default - this library does not log anything itself (see debug/debugLevel's
+      // doc comments). Pass your own retryConfig.onRetry to observe retry attempts.
+      onRetry: () => {},
       delayFactor,
       backoff,
       backoffJitter: 'none',
@@ -814,9 +813,11 @@ export class HttpClient {
   }
 
   /**
-   * Override this method in your extending class to modify request parameters
-   * and perform actions before the request is sent. You can modify the `data`
-   * and `config` objects directly as they are passed by reference.
+   * Override this method in your extending class to modify request parameters, perform actions
+   * before the request is sent, or log the outgoing request (check `this.debug`/`this.debugLevel`
+   * to decide what to log - see the README's "Debugging" section for a worked example; this
+   * library does not log anything itself). You can modify the `data` and `config` objects
+   * directly as they are passed by reference.
    *
    * If this override throws, the exception propagates out of `request()` as-is - it does NOT go
    * through `errorHandler`/`processError` and is never one of this library's error types
@@ -831,19 +832,12 @@ export class HttpClient {
    * @param config - The request config (mutable)
    */
   protected async beforeRequest(
-    requestType: RequestType,
-    url: string,
-    data: any,
-    config: XiorRequestConfig
+    _requestType: RequestType,
+    _url: string,
+    _data: any,
+    _config: XiorRequestConfig
   ): Promise<void> {
-    // Default implementation - log request details if debug is enabled
-    if (this.debug) {
-      if (this.debugLevel === 'verbose') {
-        logData(`[${this.name}] ${requestType} ${url}`, { data, config });
-      } else {
-        logData(`[${this.name}] ${requestType} ${url}`, { data });
-      }
-    }
+    // Default implementation - override in extending classes
   }
 
   /**
@@ -894,7 +888,7 @@ export class HttpClient {
     };
 
     if (error.response) {
-      return this.processHttpResponseError(error, reqType, url, requestConfig);
+      return this.processHttpResponseError(error, requestConfig);
     }
 
     return this.processTransportError(error, reqType, url, requestConfig);
@@ -904,25 +898,10 @@ export class HttpClient {
    * Builds an `HttpError` from a response whose status is outside 2xx.
    *
    * @param error Original xior error that still has `response`.
-   * @param reqType HTTP method used for the call.
-   * @param url Request URL after path-param substitution.
    * @param requestConfig Metadata snapshot shared with other error types.
    * @returns Classified HTTP error ready to throw.
    */
-  private processHttpResponseError(
-    error: any,
-    reqType: RequestType,
-    url: string,
-    requestConfig: XiorRequestConfig
-  ): HttpError {
-    if (this.debug) {
-      if (this.debugLevel === 'verbose') {
-        logData(`[${this.name}] ${reqType} ${url} : error.response`, error.response);
-      } else {
-        logData(`[${this.name}] ${reqType} ${url} : error.response.data`, error.response.data);
-      }
-    }
-
+  private processHttpResponseError(error: any, requestConfig: XiorRequestConfig): HttpError {
     const metadata = buildErrorMetadata(requestConfig, this.name || 'HttpClient');
     const response = buildHttpErrorResponse(error.response);
     const category = classifyHttpError(error.response.status);
@@ -981,14 +960,6 @@ export class HttpClient {
     url: string,
     requestConfig: XiorRequestConfig
   ): NetworkError | TimeoutError | SerializationError | AbortError {
-    if (this.debug) {
-      if (this.debugLevel === 'verbose') {
-        logData(`[${this.name}] ${reqType} ${url} : error`, error);
-      } else {
-        console.log(`[${this.name}] ${reqType} ${url} error.message : ${error.message}`);
-      }
-    }
-
     const clientName = this.name || 'HttpClient';
     const prefix = `[${clientName}] ${reqType} ${url}`;
 
@@ -1028,6 +999,50 @@ export class HttpClient {
   }
 
   /**
+   * Called from the default `errorHandler`, right after `processError` classifies a request's
+   * final error and right before it's thrown - the counterpart to `beforeRequest`/`afterResponse`
+   * for the failure path. Override this to observe/log a failed request (check
+   * `this.debug`/`this.debugLevel` to decide what to log; this library does not log anything
+   * itself - see the README's "Debugging" section).
+   *
+   * Fire-and-forget by design: `errorHandler` does not await this, so it can never delay when the
+   * caller sees the thrown error, and if this override itself throws or rejects, that failure is
+   * swallowed rather than replacing (or being swallowed alongside) the real error - a flaky
+   * logging/telemetry integration must never mask the actual request failure. If you need a
+   * guarantee that this completes before your process exits (e.g. a serverless handler), use your
+   * runtime's own keepalive mechanism (Lambda's `context.callbackWaitsForEmptyEventLoop`,
+   * Cloudflare's `event.waitUntil()`, etc.) inside your override - that's a runtime concern this
+   * library does not try to solve.
+   *
+   * The `async`/`Promise<void>` signature is NOT about awaiting this (nothing does) - it's what
+   * makes the swallow-failures guarantee above actually hold. `errorHandler` protects itself with
+   * `void this.onError(...).catch(() => {})`, and that `.catch()` only ever sees a *rejected
+   * promise* - it cannot intercept a plain synchronous `throw`. An `async` function converts a
+   * synchronous `throw` in its body into a promise rejection automatically, so a subclass override
+   * that throws synchronously is still safely swallowed. Confirmed directly: with `onError`
+   * declared as a plain (non-`async`) method, `this.onError(...)` throws immediately at the call
+   * site, before `.catch()` is ever attached, so the intended `throw processedError` on the next
+   * line never runs and the caller gets the onError override's own error instead of the real one -
+   * precisely the failure mode this hook exists to prevent. Do not remove `async` from an override
+   * (or from this declaration) even though its return value is never used.
+   *
+   * Not called at all if a subclass overrides `errorHandler` directly instead of relying on the
+   * default implementation - that override already owns the full throw contract. Call
+   * `this.onError(...)` yourself, or `await super.errorHandler(...)`, if you want both.
+   *
+   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
+   * @param url - The request URL
+   * @param error - The fully classified error `errorHandler` is about to throw
+   */
+  protected async onError(
+    _requestType: RequestType,
+    _url: string,
+    _error: HttpError | NetworkError | TimeoutError | SerializationError | AbortError
+  ): Promise<void> {
+    // Default implementation - override in extending classes
+  }
+
+  /**
    * Handles errors from the xior instance. Override this method for
    * custom error handling functionality specific to the API you are
    * consuming.
@@ -1056,6 +1071,12 @@ export class HttpClient {
    * @see https://suhaotian.github.io/xior
    */
   protected errorHandler(error: any, reqType: RequestType, url: string) {
-    throw this.processError(error, reqType, url);
+    const processedError = this.processError(error, reqType, url);
+    // Fire-and-forget - see onError's own doc comment for why this is never awaited.
+    void this.onError(reqType, url, processedError).catch(() => {
+      // onError's own failures must never surface as an unhandled rejection or mask the real
+      // error being thrown below.
+    });
+    throw processedError;
   }
 }

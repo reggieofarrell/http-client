@@ -991,7 +991,7 @@ const { data } = await client.get<SomeResponseType>('/endpoint')
 
 ### Middleware Hooks
 
-The `HttpClient` provides middleware-style hooks that allow you to modify requests and responses. These hooks are designed for direct mutation of parameters, making them more efficient and easier to use.
+The `HttpClient` provides middleware-style hooks covering a request's full lifecycle - `beforeRequest`, `afterResponse`, and `onError` - so you can observe or modify requests, responses, and failures. `beforeRequest`/`afterResponse` are designed for direct mutation of parameters, making them more efficient and easier to use.
 
 #### beforeRequest Hook
 
@@ -1117,9 +1117,43 @@ const { data } = await client.post('/users', { name: 'John' });
 // [1] Completed POST /users - 201
 ```
 
+#### onError Hook
+
+The `onError` hook is called with the fully classified error - `HttpError`, `NetworkError`, `TimeoutError`, `SerializationError`, or `AbortError` - right before it's thrown, from the default `errorHandler`. It's the failure-path counterpart to `beforeRequest`/`afterResponse`:
+
+```typescript
+import { HttpClient, RequestType } from '@reggieofarrell/http-client';
+import type { HttpError, NetworkError, TimeoutError, SerializationError, AbortError } from '@reggieofarrell/http-client';
+
+class CustomClient extends HttpClient {
+  protected async onError(
+    requestType: RequestType,
+    url: string,
+    error: HttpError | NetworkError | TimeoutError | SerializationError | AbortError
+  ): Promise<void> {
+    console.error(`${requestType} ${url} failed:`, error.message);
+    // e.g. report to your error tracker or metrics system:
+    // myMetrics.increment(`http.error.${error.code}`);
+  }
+}
+```
+
+`onError` is **fire-and-forget**: `errorHandler` does not await it, so it can never delay when the
+caller sees the thrown error, and if your override itself throws or rejects, that failure is
+swallowed rather than replacing (or being swallowed alongside) the real error - a flaky
+logging/telemetry integration must never mask the actual request failure. If you need a guarantee
+it completes before your process exits (a serverless handler, say), use your runtime's own
+keepalive mechanism inside your override (Lambda's `context.callbackWaitsForEmptyEventLoop`,
+Cloudflare's `event.waitUntil()`, etc.) - that's a runtime concern this library doesn't try to
+solve.
+
+`onError` is **not** called if you override `errorHandler` directly instead of relying on the
+default implementation - that override already owns the full throw contract. Call
+`this.onError(...)` yourself, or `await super.errorHandler(...)`, if you want both.
+
 #### Error Handling
 
-The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method, which has been refactored to provide better flexibility for child classes.
+The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method, which calls `onError` (see above) before throwing, and can be overridden for further custom behavior.
 
 **If `beforeRequest` or `afterResponse` itself throws, that exception propagates out of
 `request()` as-is** - it does not go through `errorHandler`/`processError` and is never one of
@@ -1660,17 +1694,102 @@ try {
 
 ### Debugging
 
-Enable debug logging to see request and response details:
+`debug` and `debugLevel` are flags for your own use - this library does not log anything itself.
+Read them inside your own `beforeRequest`/`afterResponse`/`onError` overrides (see
+[Middleware Hooks](#middleware-hooks)) to decide what, and whether, to log - with whatever logger
+you want, not a hardcoded `console.log`:
 
 ```typescript
-const client = new HttpClient({
+import { HttpClient, RequestType } from '@reggieofarrell/http-client';
+import type { XiorResponse } from 'xior';
+
+class DebugClient extends HttpClient {
+  protected async beforeRequest(requestType: RequestType, url: string, data: any): Promise<void> {
+    if (!this.debug) return;
+    console.log(
+      `[${this.name}] ${requestType} ${url}`,
+      this.debugLevel === 'verbose' ? { data } : undefined
+    );
+  }
+
+  protected async afterResponse(
+    requestType: RequestType,
+    url: string,
+    response: XiorResponse
+  ): Promise<void> {
+    if (this.debug) console.log(`[${this.name}] ${requestType} ${url} : ${response.status}`);
+  }
+
+  protected async onError(requestType: RequestType, url: string, error: any): Promise<void> {
+    if (this.debug) console.log(`[${this.name}] ${requestType} ${url} : ${error.message}`);
+  }
+}
+
+const client = new DebugClient({
   baseURL: 'https://api.example.com',
   debug: true,
   debugLevel: 'verbose' // or 'normal'
 });
 ```
 
+If you're upgrading from a version where `debug: true` produced console output automatically, see
+the [v3.0.4 migration guide](#v304---logging-moved-to-hooks-onerror-hook-added) below for the
+exact hooks that recreate it.
+
 ## Breaking Changes
+
+> **A note on 3.0.x:** `3.0.1` through `3.0.4` are fast-follow corrections to the `v3.0.0` rewrite
+> below, not independent changes of their own - real bugs and gaps (several found through later,
+> deeper review) that should have shipped as part of `3.0.0` itself. If you're adopting v3 fresh,
+> read `3.0.0`'s entry and this one together as "what v3 actually is," rather than as two separate
+> migrations.
+
+### v3.0.4 - Logging moved to hooks; onError hook added
+
+**Removed:**
+- Built-in `debug`/`debugLevel` console logging. `beforeRequest` and the internal error-classification methods no longer call `console.log` on your behalf, and this library no longer ships `src/logger.ts` at all. (`logWarning`/`logInfo`/`logError` were already dead code - unused by anything in the library; `logData` was the only one actually wired in, and it powered exactly the output being removed here.) A hardcoded, ANSI-colored logger with no way to plug in a real one (Pino, Winston, etc.) was scope creep for a small HTTP client, and it was already redundant with `beforeRequest`/`afterResponse` - the only real gap was the failure path, which the new `onError` hook below closes properly. `debug`/`debugLevel` remain on `HttpClientOptions` and `HttpClient` unchanged - only the automatic console output is gone; they're now plain flags for you to read inside your own hook overrides. See [Debugging](#debugging) and the migration example below.
+
+**Added:**
+- `onError(requestType, url, error)` hook - called with the fully classified error right before `errorHandler` throws it, the failure-path counterpart to `beforeRequest`/`afterResponse`. Fire-and-forget: never awaited by `errorHandler`, so it can't delay or replace the real thrown error even if it throws or rejects itself. Not called if you override `errorHandler` directly (that override already owns the full throw contract) - call `this.onError(...)` or `await super.errorHandler(...)` if you want both. See [Middleware Hooks](#middleware-hooks).
+
+**Migration Guide:**
+
+If you relied on `debug: true` for its old built-in console output, recreate it explicitly with hooks:
+
+```typescript
+// Before (3.0.3 and earlier) - built-in, undocumented-format console output
+const client = new HttpClient({
+  baseURL: 'https://api.example.com',
+  debug: true,
+  debugLevel: 'verbose',
+});
+// GET/POST/etc. requests and their errors were logged to the console automatically.
+
+// After (3.0.4+) - explicit, and shaped however you want
+import { HttpClient, RequestType } from '@reggieofarrell/http-client';
+
+class DebugClient extends HttpClient {
+  protected async beforeRequest(requestType: RequestType, url: string, data: any): Promise<void> {
+    if (!this.debug) return;
+    console.log(
+      `[${this.name}] ${requestType} ${url}`,
+      this.debugLevel === 'verbose' ? { data } : undefined
+    );
+  }
+
+  protected async onError(requestType: RequestType, url: string, error: any): Promise<void> {
+    if (this.debug) console.log(`[${this.name}] ${requestType} ${url} failed:`, error.message);
+  }
+}
+
+const client = new DebugClient({
+  baseURL: 'https://api.example.com',
+  debug: true,
+  debugLevel: 'verbose',
+});
+```
+
+`debug`/`debugLevel` themselves did not change as config options - only the automatic output tied to them is gone, moved into hooks you control.
 
 ### v3.0.0 - Error handling fixes, API cleanup, and real upload progress
 
