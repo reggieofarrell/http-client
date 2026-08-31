@@ -36,5 +36,5 @@ elif [ "$SONAR_PRECHECK_STATUS" -ne 0 ]; then
   exit 1
 fi
 
-echo "[pre-push] running rulesync check and tests..."
-npm run rules:check && npm test
+echo "[pre-push] running rulesync check, hook permission check, and tests..."
+npm run rules:check && npm run check:hooks && npm test

@@ -49,6 +49,8 @@
     "pre-commit": "npm run build",
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && node scripts/finalize-esm-build.mjs && rollup -c",
     "check:build": "node scripts/check-build-output.mjs",
+    "check:hooks": "node scripts/check-hook-permissions.mjs",
+    "test:hook-permissions": "node --test scripts/check-hook-permissions.test.mjs",
     "start": "tsc --watch",
     "test": "jest",
     "test:types": "tsc --noEmit",

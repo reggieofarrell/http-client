@@ -44,6 +44,12 @@ jobs:
       - name: Rules in sync (rulesync)
         # Fails if the generated agent-instruction files drift from the .rulesync/ source.
         run: npm run rules:check
+      - name: Hook script permissions
+        # Catches a script losing its executable bit before a bare-path agent hook depending on
+        # it silently stops running - see scripts/check-hook-permissions.mjs.
+        run: npm run check:hooks
+      - name: Hook permission check unit tests
+        run: npm run test:hook-permissions
 
   types:
     name: Type check
