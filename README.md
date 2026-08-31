@@ -1652,29 +1652,6 @@ const client = new HttpClient({
 
 ## Breaking Changes
 
-### Unreleased - `HttpError` constructor takes an options object
-
-Manual `new HttpError(...)` construction now takes a single `HttpErrorOptions` object instead of a
-long positional parameter list. Callers that only catch `HttpError` (the normal path) are
-unaffected. `HttpErrorOptions` is exported from the package root.
-
-```typescript
-// Before
-new HttpError(message, status, category, statusText, response, metadata, cause, isRetriable);
-
-// After
-new HttpError({
-  message,
-  status,
-  category,
-  statusText,
-  response,
-  metadata,
-  cause,
-  isRetriable,
-});
-```
-
 ### v3.0.0 - Error handling fixes, API cleanup, and real upload progress
 
 **Removed:**
@@ -1686,6 +1663,7 @@ new HttpError({
 - Upgraded `xior` from `^0.7.8` to `^0.8.4`. No API changes required on our side; see [xior's changelog](https://github.com/suhaotian/xior/blob/main/CHANGELOG.md) if you use xior plugins or options directly.
 - Renamed the `errorMessagePath` config option (instance-level and per-request) to `errorMessageExtractor`, matching the `ErrorMessageExtractor` type it was already typed as - it always accepted a function as well as a dot-notation string, so "path" was misleading. Rename any usages; behavior is unchanged.
 - `HttpError.response.data` (and `HttpErrorResponse.data`) is now `unknown` by default instead of `any` - `HttpError` and `HttpErrorResponse` are generic over the error body (`HttpError<TErrorBody = unknown>`), matching how `client.get<T>()` already types success responses. This only affects code that references `HttpError`/`HttpErrorResponse` as an explicit type annotation without narrowing `TErrorBody` first, e.g. `const err: HttpError = ...; err.response.data.someProp` will no longer compile as-is - add `as HttpError<YourType>` or (preferably) switch to the new `isHttpError<T>()` type guard. Code that narrows via a plain `error instanceof HttpError` check is unaffected either way; see "Typing the error response body" below for why.
+- **`HttpError` is constructed from a single `HttpErrorOptions` object** instead of a long positional parameter list. Callers that only catch `HttpError` (the normal path) are unaffected. `HttpErrorOptions` and `ErrorMetadata` are exported from the package root. Folded into the v3 migration even though it landed in a later 3.x patch — there is effectively one consumer, so this avoids a 4.x bump for an API almost nobody constructs by hand.
 
 **Added:**
 - `isHttpError<TErrorBody>(error)` type guard - narrows to `HttpError<TErrorBody>` and types `response.data` accordingly. Needed because TypeScript's `instanceof` narrowing against a generic class always resolves unspecified type parameters to `any`, so a plain `error instanceof HttpError` check silently leaves `response.data` untyped no matter what `HttpError`'s own default is. See "Typing the error response body" below.
@@ -1787,6 +1765,25 @@ try {
     console.log(error.response.data.code); // typed as `string`
   }
 }
+```
+
+```typescript
+// Constructing HttpError by hand (rare - only needed if you synthesize errors yourself)
+
+// Before (v2.x) - long positional argument list
+new HttpError(message, status, category, statusText, response, metadata, cause, isRetriable);
+
+// After (v3.x) - single named options object (HttpErrorOptions is exported)
+new HttpError({
+  message,
+  status,
+  category,
+  statusText,
+  response,
+  metadata,
+  cause,
+  isRetriable,
+});
 ```
 
 ```typescript
