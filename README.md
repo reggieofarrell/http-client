@@ -1652,18 +1652,24 @@ const client = new HttpClient({
 
 ## Breaking Changes
 
-### Unreleased - `HttpError` constructor options bag
+### Unreleased - `HttpError` constructor takes an options object
 
-Manual `new HttpError(...)` construction now takes an optional trailing options object for
-`cause` and `isRetriable` instead of two separate trailing positional parameters. Callers that
-only catch `HttpError` (the normal path) are unaffected.
+Manual `new HttpError(...)` construction now takes a single `HttpErrorOptions` object instead of a
+long positional parameter list. Callers that only catch `HttpError` (the normal path) are
+unaffected. `HttpErrorOptions` is exported from the package root.
 
 ```typescript
 // Before
 new HttpError(message, status, category, statusText, response, metadata, cause, isRetriable);
 
 // After
-new HttpError(message, status, category, statusText, response, metadata, {
+new HttpError({
+  message,
+  status,
+  category,
+  statusText,
+  response,
+  metadata,
   cause,
   isRetriable,
 });

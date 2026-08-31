@@ -1906,15 +1906,15 @@ describe('HttpClient', () => {
         },
         clientName: 'HttpClient',
       };
-      const error = new HttpError(
-        'Test error',
-        404,
-        HttpErrorCategory.NOT_FOUND,
-        'Not Found',
+      const error = new HttpError({
+        message: 'Test error',
+        status: 404,
+        category: HttpErrorCategory.NOT_FOUND,
+        statusText: 'Not Found',
         response,
         metadata,
-        { cause }
-      );
+        cause,
+      });
 
       expect(error.message).toBe('Test error');
       expect(error.status).toBe(404);

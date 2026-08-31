@@ -17,6 +17,7 @@ import {
   buildNetworkErrorMetadata,
   buildHttpErrorResponse,
   classifyErrorForRetry,
+  type HttpErrorOptions,
 } from './errors.js';
 
 export enum RequestType {
@@ -874,23 +875,24 @@ export class HttpClient {
       isRetriable = this.retryConfig.enableRetry(requestConfig, error);
     }
 
-    // Build the options bag without an `!== undefined` ternary (S7735): only attach
-    // isRetriable when enableRetry produced an explicit boolean so exactOptionalPropertyTypes
-    // stays happy and HttpError can still derive retriability when omitted.
-    const httpErrorOptions: { cause: unknown; isRetriable?: boolean } = { cause: error };
-    if (typeof isRetriable === 'boolean') {
-      httpErrorOptions.isRetriable = isRetriable;
-    }
-
-    return new HttpError(
+    // Assemble a single HttpErrorOptions object (named fields at the call site) rather
+    // than a long positional list. Only attach isRetriable when enableRetry produced an
+    // explicit boolean so exactOptionalPropertyTypes stays happy and HttpError can still
+    // derive retriability when the field is omitted.
+    const httpErrorOptions: HttpErrorOptions = {
       message,
-      error.response.status,
+      status: error.response.status,
       category,
       statusText,
       response,
       metadata,
-      httpErrorOptions
-    );
+      cause: error,
+    };
+    if (typeof isRetriable === 'boolean') {
+      httpErrorOptions.isRetriable = isRetriable;
+    }
+
+    return new HttpError(httpErrorOptions);
   }
 
   /**

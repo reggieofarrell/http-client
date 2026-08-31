@@ -429,14 +429,14 @@ describe('errors', () => {
           clientName: 'TestClient',
         };
 
-        const error = new HttpError(
-          'Resource not found',
-          404,
-          HttpErrorCategory.NOT_FOUND,
-          'Not Found',
+        const error = new HttpError({
+          message: 'Resource not found',
+          status: 404,
+          category: HttpErrorCategory.NOT_FOUND,
+          statusText: 'Not Found',
           response,
-          metadata
-        );
+          metadata,
+        });
 
         expect(error.message).toBe('Resource not found');
         expect(error.status).toBe(404);
@@ -467,15 +467,15 @@ describe('errors', () => {
           clientName: 'TestClient',
         };
 
-        const error = new HttpError(
-          'Server error',
-          500,
-          HttpErrorCategory.SERVER_ERROR,
-          'Internal Server Error',
+        const error = new HttpError({
+          message: 'Server error',
+          status: 500,
+          category: HttpErrorCategory.SERVER_ERROR,
+          statusText: 'Internal Server Error',
           response,
           metadata,
-          { isRetriable: false } // Override default retriability
-        );
+          isRetriable: false, // Override default retriability
+        });
 
         expect(error.isRetriable).toBe(false);
       });
