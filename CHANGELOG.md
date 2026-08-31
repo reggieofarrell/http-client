@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.4](https://github.com/reggieofarrell/http-client/compare/v3.0.3...v3.0.4) (2026-08-31)
+
+
+### Added
+
+* add onError hook; move debug logging to hooks ([#33](https://github.com/reggieofarrell/http-client/issues/33)) ([8db0676](https://github.com/reggieofarrell/http-client/commit/8db06769ff8c669cf7ca9ad12e202565ca1f288d))
+
+
+### Fixed
+
+* pin local Sonar host ([#32](https://github.com/reggieofarrell/http-client/issues/32)) ([00328b8](https://github.com/reggieofarrell/http-client/commit/00328b812e7c6f79e47c5a49e27fe78ccf9cfc60))
+* scope local Sonar credentials ([#34](https://github.com/reggieofarrell/http-client/issues/34)) ([9881923](https://github.com/reggieofarrell/http-client/commit/9881923cefb1978f4da2a25f60dbf626c7912bb3))
+
 ## [3.0.3](https://github.com/reggieofarrell/http-client/compare/v3.0.2...v3.0.3) (2026-08-31)
 
 
