@@ -97,6 +97,26 @@ describe('HttpClient retries against a real server', () => {
     }
   });
 
+  test('a per-request retryConfig.retries override retries even when the instance default is 0 (regression)', async () => {
+    // Regression test: HttpClient's constructor used to register xior's error-retry plugin only
+    // when `retryConfig.retries > 0` *at construction time* - so a per-request override on an
+    // instance built with the default (0) retries silently did nothing, because the plugin was
+    // never in xior's plugin chain at all for that request to fall into.
+    const { server, baseURL, getRequestCount } = await startServer(() => 500);
+
+    try {
+      const client = new HttpClient({ baseURL }); // instance-level retries left at the default (0)
+
+      await expect(
+        client.get('/flaky', { retryConfig: { retries: 3, delayFactor: 1 } })
+      ).rejects.toThrow();
+
+      expect(getRequestCount()).toBe(4); // 1 initial attempt + 3 retries
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   test('a non-retriable error (4xx) is not retried even with retries configured', async () => {
     const { server, baseURL, getRequestCount } = await startServer(() => 404);
 

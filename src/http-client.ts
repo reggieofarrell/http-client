@@ -288,23 +288,30 @@ export class HttpClient {
       client.plugins.use(config.uploadProgressPlugin);
     }
 
-    // Apply error retry plugin if retries are enabled
-    if (this.retryConfig.retries && this.retryConfig.retries > 0) {
-      const pluginOptions: any = {
-        retryTimes: this.retryConfig.retries,
-        retryInterval: this.buildRetryInterval(),
-      };
+    // Always registered, even when retryConfig.retries is 0 (the default) - xior's error-retry
+    // plugin reads retryTimes/retryInterval/enableRetry/onRetry fresh from each request's own
+    // config (falling back to these plugin-creation-time values only when a request doesn't set
+    // its own), so a per-request `retryConfig.retries` override needs the plugin to already be in
+    // the chain to have any effect. Registering it conditionally on the instance-level default
+    // meant a per-request override on an instance built with the default retries silently did
+    // nothing - confirmed directly: an instance built with no retryConfig, given a per-request
+    // `retryConfig: { retries: 3 }`, made exactly 1 request instead of 4. With retryTimes: 0 (the
+    // default), a failure is still thrown on the very first attempt, so this changes nothing for
+    // an instance that never opts into retries at any level.
+    const pluginOptions: any = {
+      retryTimes: this.retryConfig.retries,
+      retryInterval: this.buildRetryInterval(),
+    };
 
-      if (this.retryConfig.onRetry) {
-        pluginOptions.onRetry = this.retryConfig.onRetry;
-      }
-
-      if (this.retryConfig.enableRetry !== undefined) {
-        pluginOptions.enableRetry = this.retryConfig.enableRetry;
-      }
-
-      client.plugins.use(errorRetryPlugin(pluginOptions));
+    if (this.retryConfig.onRetry) {
+      pluginOptions.onRetry = this.retryConfig.onRetry;
     }
+
+    if (this.retryConfig.enableRetry !== undefined) {
+      pluginOptions.enableRetry = this.retryConfig.enableRetry;
+    }
+
+    client.plugins.use(errorRetryPlugin(pluginOptions));
 
     this.client = client;
   }
