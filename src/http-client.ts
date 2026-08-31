@@ -394,15 +394,16 @@ export class HttpClient {
   private parseRetryAfter(retryAfter: string | number): number | null {
     // If it's a number (or string number), treat as seconds
     const asNumber = Number(retryAfter);
-    if (!isNaN(asNumber)) {
+    if (!Number.isNaN(asNumber)) {
       return asNumber * 1000; // Convert to milliseconds
     }
 
     // Try parsing as HTTP date
     const asDate = new Date(retryAfter);
-    if (!isNaN(asDate.getTime())) {
-      const delayMs = asDate.getTime() - Date.now();
-      return delayMs > 0 ? delayMs : 0;
+    if (!Number.isNaN(asDate.getTime())) {
+      // Clamp negative delays (past Retry-After dates) to 0 via Math.max (S7766)
+      // instead of a ternary that repeats the same comparison.
+      return Math.max(asDate.getTime() - Date.now(), 0);
     }
 
     return null;
@@ -567,10 +568,12 @@ export class HttpClient {
       );
     }
 
-    // Call afterResponse middleware hook for successful responses
-    await this.afterResponse(requestType, url, req!, req!.data);
+    // Call afterResponse middleware hook for successful responses.
+    // After the `if (!req)` guard above, TypeScript has already narrowed `req`
+    // to defined - non-null assertions here are redundant (S4325).
+    await this.afterResponse(requestType, url, req, req.data);
 
-    return { request: req!, data: req!.data };
+    return { request: req, data: req.data };
   }
 
   /**
