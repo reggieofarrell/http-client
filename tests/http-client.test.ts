@@ -5,6 +5,7 @@ import {
   HttpError,
   SerializationError,
   AbortError,
+  HttpClientError,
   HttpErrorCategory,
   classifyErrorForRetry,
   isSerializationError,
@@ -1505,6 +1506,55 @@ describe('HttpClient', () => {
 
       await expect(customClient.get('/error')).rejects.toThrow();
       expect(customClient.afterResponse).not.toHaveBeenCalled();
+      customMock.restore();
+    });
+
+    test('a beforeRequest override that throws propagates raw, not through the error hierarchy', async () => {
+      // Documents the contract in beforeRequest's own doc comment: an exception from a hook
+      // override is the hook's own bug, not a transport failure, so it's never wrapped as one of
+      // this library's error types.
+      class CustomClient extends HttpClient {
+        protected async beforeRequest(): Promise<void> {
+          throw new RangeError('boom');
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      let caught: unknown;
+      try {
+        await customClient.get('/test');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(RangeError);
+      expect(caught).not.toBeInstanceOf(HttpClientError);
+      customMock.restore();
+    });
+
+    test('an afterResponse override that throws propagates raw, not through the error hierarchy', async () => {
+      class CustomClient extends HttpClient {
+        protected async afterResponse(): Promise<void> {
+          throw new RangeError('boom');
+        }
+      }
+
+      const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
+      const customMock = new MockPlugin(customClient.client);
+      customMock.onGet('/test').reply(200, { success: true });
+
+      let caught: unknown;
+      try {
+        await customClient.get('/test');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(RangeError);
+      expect(caught).not.toBeInstanceOf(HttpClientError);
       customMock.restore();
     });
 

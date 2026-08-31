@@ -1121,6 +1121,14 @@ const { data } = await client.post('/users', { name: 'John' });
 
 The `afterResponse` hook is only called for successful responses (2xx status codes). Error responses are handled by the `errorHandler` method, which has been refactored to provide better flexibility for child classes.
 
+**If `beforeRequest` or `afterResponse` itself throws, that exception propagates out of
+`request()` as-is** - it does not go through `errorHandler`/`processError` and is never one of
+this library's error types (`HttpError`, `NetworkError`, etc.). That's deliberate: an exception
+from your own hook is a bug in your hook logic, not a transport failure, so there's no correct
+error category to force it into. `error instanceof HttpError` (or any of the other error classes)
+will always be `false` for a hook failure - that's how you can tell it apart from a real request
+failure in a `catch` block.
+
 **`errorHandler` must always throw.** There's no fallback response for a failed request to resolve
 with, so an override must end every code path in a `throw` - either `throw
 this.processError(error, reqType, url)`, a custom error built from it, or (per the "Basic Error

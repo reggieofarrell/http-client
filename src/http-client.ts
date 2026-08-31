@@ -818,6 +818,13 @@ export class HttpClient {
    * and perform actions before the request is sent. You can modify the `data`
    * and `config` objects directly as they are passed by reference.
    *
+   * If this override throws, the exception propagates out of `request()` as-is - it does NOT go
+   * through `errorHandler`/`processError` and is never one of this library's error types
+   * (`HttpError`, `NetworkError`, etc.). That's deliberate: an exception here comes from your own
+   * hook logic, not the transport, so there's no correct error category to force it into.
+   * `catch (err) { err instanceof HttpError }` will always be `false` for a `beforeRequest`
+   * failure - that's how you can tell it apart from a real request failure.
+   *
    * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
    * @param url - The request URL
    * @param data - The request data (mutable)
@@ -843,6 +850,13 @@ export class HttpClient {
    * Override this method in your extending class to modify response data
    * and perform actions after receiving a successful response. You can modify
    * the `response.data` directly as it is passed by reference.
+   *
+   * Only called for a successful (already-resolved) response, and only after the underlying
+   * request has genuinely succeeded - so if this override throws, that exception propagates out
+   * of `request()` as-is, the same way a `beforeRequest` failure does (see its doc comment): not
+   * through `errorHandler`, and not as one of this library's error types. A raw exception here
+   * tells you the request itself succeeded but your own post-processing failed - distinct from a
+   * request failure, which always throws one of `HttpError`/`NetworkError`/etc.
    *
    * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
    * @param url - The request URL
