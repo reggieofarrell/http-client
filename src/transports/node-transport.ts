@@ -73,6 +73,70 @@ function getContentLengthHeader(request: XiorRequestConfig): number | undefined 
   return undefined;
 }
 
+/**
+ * Splits the request body into a Buffer (copied from string/Uint8Array, reused
+ * for Buffer) or a Readable stream. Buffers are checked first because they are
+ * also Uint8Array instances and must not be copied.
+ *
+ * @param data Body already validated by `assertSupportedBody`.
+ * @param request Used only to read Content-Length for streams.
+ * @returns Buffer or stream plus an optional known byte length.
+ */
+function resolveNodeUploadBody(
+  data: unknown,
+  request: XiorRequestConfig
+): { bodyBuffer?: Buffer; bodyStream?: Readable; total: number | undefined } {
+  if (Buffer.isBuffer(data)) {
+    return { bodyBuffer: data, total: data.length };
+  }
+  if (typeof data === 'string' || data instanceof Uint8Array) {
+    const bodyBuffer = Buffer.from(data);
+    return { bodyBuffer, total: bodyBuffer.length };
+  }
+  return { bodyStream: data as Readable, total: getContentLengthHeader(request) };
+}
+
+/**
+ * Reads the Node HTTP response body and settles the outer Promise exactly once.
+ * Kept at module scope so the `http.request` callback does not nest past the
+ * SonarJS function-nesting limit.
+ *
+ * @param request Original xior config, used to build the library response object.
+ * @param res Incoming message from `node:http` / `node:https`.
+ * @param settleOnce Guard that ignores late success/failure after the first settlement.
+ * @param resolve Fulfill the outer upload Promise with a xior-shaped response.
+ * @param reject Reject the outer upload Promise with a typed transport error.
+ */
+function handleIncomingResponse(
+  request: XiorRequestConfig,
+  res: IncomingMessage,
+  settleOnce: (fn: () => void) => void,
+  resolve: (value: XiorResponse<any>) => void,
+  reject: (reason: unknown) => void
+): void {
+  readIncomingMessageBody(res)
+    .then(responseBodyBuffer => {
+      const status = res.statusCode || 0;
+      const statusText = res.statusMessage || '';
+      const responseHeaders = buildHeadersFromEntries(flattenNodeHeaders(res.headers));
+      const xiorResponse = buildXiorResponse(
+        request,
+        status,
+        statusText,
+        responseHeaders,
+        responseBodyBuffer
+      );
+      settleOnce(() => settleFromResponse(request, xiorResponse, resolve, reject));
+    })
+    // Defensive: a response stream failing specifically during body-read (as opposed to
+    // the request itself failing, already covered by the real-server test for a
+    // mid-response connection reset below) is hard to force deterministically - in
+    // practice, destroying the underlying socket surfaces through `req`'s own 'error'
+    // handler before/instead of this one.
+    /* istanbul ignore next */
+    .catch(err => settleOnce(() => reject(buildNetworkError(request, err))));
+}
+
 class UploadCounterTransform extends Transform {
   private loaded = 0;
 
@@ -145,28 +209,12 @@ export function performNodeUploadRequest(request: XiorRequestConfig): Promise<Xi
     );
   }
 
-  let bodyBuffer: Buffer | undefined;
-  let bodyStream: Readable | undefined;
-  let total: number | undefined;
-
   // No further "else" branch here: `performNodeUploadRequest` is only ever called from
   // `upload-progress-plugin.ts`, which already calls `assertSupportedBody` (string/Buffer/
   // Uint8Array/Readable/FormData only) before dispatching here, and FormData is already rejected
   // above - so one of these three cases always holds by the time this function runs. This isn't
   // itself the system boundary, so it trusts that guarantee rather than re-validating it.
-  if (typeof data === 'string') {
-    bodyBuffer = Buffer.from(data);
-    total = bodyBuffer.length;
-  } else if (Buffer.isBuffer(data)) {
-    bodyBuffer = data;
-    total = data.length;
-  } else if (data instanceof Uint8Array) {
-    bodyBuffer = Buffer.from(data);
-    total = bodyBuffer.length;
-  } else {
-    bodyStream = data as Readable;
-    total = getContentLengthHeader(request);
-  }
+  const { bodyBuffer, bodyStream, total } = resolveNodeUploadBody(data, request);
 
   const finalUrl = buildFinalUrl(request);
   const url = new URL(finalUrl);
@@ -199,27 +247,7 @@ export function performNodeUploadRequest(request: XiorRequestConfig): Promise<Xi
         agent: (request as any).httpsAgent,
       },
       (res: IncomingMessage) => {
-        readIncomingMessageBody(res)
-          .then(responseBodyBuffer => {
-            const status = res.statusCode || 0;
-            const statusText = res.statusMessage || '';
-            const responseHeaders = buildHeadersFromEntries(flattenNodeHeaders(res.headers));
-            const xiorResponse = buildXiorResponse(
-              request,
-              status,
-              statusText,
-              responseHeaders,
-              responseBodyBuffer
-            );
-            settleOnce(() => settleFromResponse(request, xiorResponse, resolve, reject));
-          })
-          // Defensive: a response stream failing specifically during body-read (as opposed to
-          // the request itself failing, already covered by the real-server test for a
-          // mid-response connection reset below) is hard to force deterministically - in
-          // practice, destroying the underlying socket surfaces through `req`'s own 'error'
-          // handler (line below) before/instead of this one.
-          /* istanbul ignore next */
-          .catch(err => settleOnce(() => reject(buildNetworkError(request, err))));
+        handleIncomingResponse(request, res, settleOnce, resolve, reject);
       }
     );
 
