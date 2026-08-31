@@ -3,7 +3,7 @@
   "hooks": {
     "afterFileEdit": [
       {
-        "command": "node ./scripts/agent-hooks/scan-edited-file.mjs",
+        "command": "./scripts/agent-hooks/scan-edited-file.mjs",
         "timeout": 60
       }
     ]

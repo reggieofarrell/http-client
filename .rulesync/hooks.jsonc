@@ -9,7 +9,7 @@
     "hooks": {
       "afterFileEdit": [
         {
-          "command": "node ./scripts/agent-hooks/scan-edited-file.mjs",
+          "command": "./scripts/agent-hooks/scan-edited-file.mjs",
           "timeout": 60,
         },
       ],
@@ -20,13 +20,7 @@
       "postToolUse": [
         {
           "matcher": "Write|Edit|MultiEdit",
-          // Written explicitly with $CLAUDE_PROJECT_DIR rather than relying on rulesync's
-          // implicit bare-relative-path rewrite (it only rewrites a command with no
-          // interpreter in front of it - prefixing with `node` stops that rewrite from
-          // firing, per rulesync's own docs: "commands that already start with a variable
-          // are passed through untouched"). Claude Code hooks aren't guaranteed to run with
-          // the project root as cwd, so a plain relative path is the one thing to avoid here.
-          "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/scan-edited-file.mjs",
+          "command": "./scripts/agent-hooks/scan-edited-file.mjs",
           "timeout": 60,
         },
       ],
@@ -36,7 +30,7 @@
     "hooks": {
       "postToolUse": [
         {
-          "command": "node ./scripts/agent-hooks/scan-edited-file.mjs",
+          "command": "./scripts/agent-hooks/scan-edited-file.mjs",
           "timeout": 60,
         },
       ],
