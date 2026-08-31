@@ -871,16 +871,12 @@ export class HttpClient {
       isRetriable = this.retryConfig.enableRetry(requestConfig, error);
     }
 
-    return new HttpError(
-      message,
-      error.response.status,
-      category,
-      statusText,
-      response,
-      metadata,
-      error,
-      isRetriable
-    );
+    return new HttpError(message, error.response.status, category, statusText, response, metadata, {
+      cause: error,
+      // Only pass when enableRetry produced an explicit boolean; omit otherwise so
+      // exactOptionalPropertyTypes stays happy and HttpError derives retriability itself.
+      ...(isRetriable !== undefined ? { isRetriable } : {}),
+    });
   }
 
   /**

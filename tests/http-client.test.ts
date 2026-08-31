@@ -1913,7 +1913,7 @@ describe('HttpClient', () => {
         'Not Found',
         response,
         metadata,
-        cause
+        { cause }
       );
 
       expect(error.message).toBe('Test error');

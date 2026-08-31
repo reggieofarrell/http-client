@@ -474,8 +474,7 @@ describe('errors', () => {
           'Internal Server Error',
           response,
           metadata,
-          undefined,
-          false // Override default retriability
+          { isRetriable: false } // Override default retriability
         );
 
         expect(error.isRetriable).toBe(false);

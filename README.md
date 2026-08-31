@@ -1652,6 +1652,23 @@ const client = new HttpClient({
 
 ## Breaking Changes
 
+### Unreleased - `HttpError` constructor options bag
+
+Manual `new HttpError(...)` construction now takes an optional trailing options object for
+`cause` and `isRetriable` instead of two separate trailing positional parameters. Callers that
+only catch `HttpError` (the normal path) are unaffected.
+
+```typescript
+// Before
+new HttpError(message, status, category, statusText, response, metadata, cause, isRetriable);
+
+// After
+new HttpError(message, status, category, statusText, response, metadata, {
+  cause,
+  isRetriable,
+});
+```
+
 ### v3.0.0 - Error handling fixes, API cleanup, and real upload progress
 
 **Removed:**

@@ -184,15 +184,19 @@ export class HttpError<TErrorBody = unknown> extends HttpClientError {
   response: HttpErrorResponse<TErrorBody>;
 
   /**
-   * Creates an instance of HttpError
+   * Creates an instance of HttpError.
+   *
+   * `cause` and `isRetriable` are grouped into an optional trailing options bag so the
+   * constructor stays at or under Sonar's parameter-count limit (S107) without dropping
+   * any of the diagnostic fields callers need.
+   *
    * @param message - Human-readable error message
    * @param status - HTTP status code
    * @param category - Error category
    * @param statusText - HTTP status text
    * @param response - Response object
    * @param metadata - Diagnostic metadata
-   * @param cause - The original error that caused this error
-   * @param isRetriable - Whether the error is retriable (determined automatically if not provided)
+   * @param options - Optional cause and explicit retriability override
    */
   constructor(
     message: string,
@@ -201,14 +205,13 @@ export class HttpError<TErrorBody = unknown> extends HttpClientError {
     statusText: string,
     response: HttpErrorResponse<TErrorBody>,
     metadata: ErrorMetadata,
-    cause?: any,
-    isRetriable?: boolean
+    options?: { cause?: unknown; isRetriable?: boolean }
   ) {
-    // Determine retriability if not explicitly provided
-    const retriable =
-      isRetriable !== undefined ? isRetriable : determineHttpErrorRetriability(status, category);
+    // Prefer an explicit override when provided; otherwise derive from status/category.
+    // `??` (not `||`) so a deliberate `false` override is preserved (S6606 / S7735).
+    const retriable = options?.isRetriable ?? determineHttpErrorRetriability(status, category);
 
-    super(message, 'HTTP_ERROR', metadata, retriable, cause);
+    super(message, 'HTTP_ERROR', metadata, retriable, options?.cause);
     this.status = status;
     this.category = category;
     this.statusText = statusText;
