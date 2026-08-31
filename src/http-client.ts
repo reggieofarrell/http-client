@@ -877,9 +877,18 @@ export class HttpClient {
     const extractedMessage = this.extractErrorMessage(error.response, extractor);
     const message = extractedMessage || statusText;
 
+    // `error.config` is the actual config xior's error-retry plugin evaluated for the live retry
+    // loop - the same object a per-request `retryConfig.enableRetry` override was merged onto (see
+    // `applyPerRequestRetryConfig`). Preferring it over `this.retryConfig.enableRetry` (and over
+    // the reconstructed `requestConfig`) means the isRetriable computed here always matches what
+    // actually happened during retries, instead of silently falling back to the instance-level
+    // default's answer for a request that used a per-request override.
+    const effectiveConfig = (error.config as HttpClientRequestConfig | undefined) ?? requestConfig;
+    const effectiveEnableRetry = effectiveConfig.enableRetry ?? this.retryConfig.enableRetry;
+
     let isRetriable: boolean | undefined;
-    if (this.retryConfig.enableRetry && typeof this.retryConfig.enableRetry === 'function') {
-      isRetriable = this.retryConfig.enableRetry(requestConfig, error);
+    if (effectiveEnableRetry && typeof effectiveEnableRetry === 'function') {
+      isRetriable = effectiveEnableRetry(effectiveConfig, error);
     }
 
     // Assemble a single HttpErrorOptions object (named fields at the call site) rather

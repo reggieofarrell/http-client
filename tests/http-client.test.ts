@@ -2637,13 +2637,42 @@ describe('HttpClient', () => {
       if (processedError instanceof HttpError) {
         expect(processedError.isRetriable).toBe(true);
       }
-      expect(customClient.retryConfig.enableRetry).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          url: '/test',
-        }),
-        error
-      );
+      // Called with the real error.config (what the live retry loop actually evaluated), not a
+      // separately reconstructed stand-in - see the "isRetriable reflects the per-request
+      // enableRetry override" regression test below for why this distinction matters.
+      expect(customClient.retryConfig.enableRetry).toHaveBeenCalledWith(error.config, error);
+    });
+
+    test('isRetriable reflects the per-request enableRetry override, not the instance default (regression)', () => {
+      // Regression test: processHttpResponseError used to always recompute isRetriable via the
+      // instance-level retryConfig.enableRetry, ignoring a per-request enableRetry override that
+      // the live retry loop actually used - so a request whose per-request override forced a
+      // retry (or suppressed one) could still throw an error whose `isRetriable` disagreed with
+      // what really happened.
+      class TestClientWithRetry extends HttpClient {
+        public testProcessError(error: any, reqType: RequestType, url: string) {
+          return this.processError(error, reqType, url);
+        }
+      }
+
+      const customClient = new TestClientWithRetry({
+        baseURL: 'https://api.example.com',
+        retryConfig: { enableRetry: () => false }, // instance default says "never retry"
+      });
+
+      // `error.config.enableRetry` is what applyPerRequestRetryConfig sets on the real request
+      // config for a per-request override - it's what the live retry loop actually consulted.
+      const error = {
+        response: { status: 400, statusText: 'Bad Request', data: {} },
+        config: { headers: {}, enableRetry: () => true }, // per-request override says "always retry"
+      };
+
+      const processedError = customClient.testProcessError(error, RequestType.GET, '/test');
+
+      expect(processedError).toBeInstanceOf(HttpError);
+      if (processedError instanceof HttpError) {
+        expect(processedError.isRetriable).toBe(true);
+      }
     });
   });
 
