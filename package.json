@@ -89,7 +89,7 @@
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.37.0",
     "@types/jest": "^29.5.5",
-    "@types/node": "^20.5.0",
+    "@types/node": "^20.19.43",
     "@typescript-eslint/eslint-plugin": "^8.46.0",
     "@typescript-eslint/parser": "^8.46.0",
     "commit-and-tag-version": "^12.6.0",
@@ -108,7 +108,7 @@
     "rulesync": "^16.17.0",
     "ts-jest": "^29.1.1",
     "tsup": "^7.1.0",
-    "typescript": "^5.1.6",
+    "typescript": "^5.9.3",
     "undici": "^7.29.0"
   },
   "dependencies": {

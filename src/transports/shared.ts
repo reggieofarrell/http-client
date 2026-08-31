@@ -68,6 +68,16 @@ function parseResponseData(bodyText: string): any {
 }
 
 /**
+ * Converts a byte body into something the Fetch `Response` constructor accepts as `BodyInit`.
+ * Under TS 5.9+, a plain `Uint8Array` (and Node `Buffer`) is typed as `Uint8Array<ArrayBufferLike>`,
+ * which is no longer assignable to `BodyInit`; copying into a fresh `Uint8Array` yields the
+ * `ArrayBuffer`-backed view the DOM lib expects.
+ */
+function toFetchResponseBody(body: string | Uint8Array): BodyInit {
+  return typeof body === 'string' ? body : new Uint8Array(body);
+}
+
+/**
  * Builds a real Headers instance from a plain header map (Node's `res.headers`, or a parsed
  * XHR `getAllResponseHeaders()` string turned into entries) - deliberately a genuine Headers
  * instance, not a duck-typed stand-in, since XiorResponse types it as a real Headers.
@@ -132,7 +142,7 @@ export function buildXiorResponse(
   const bodyText = typeof body === 'string' ? body : new TextDecoder().decode(body);
   const data = bodyText.length > 0 ? parseResponseData(bodyText) : bodyText;
   const isEmpty = typeof body === 'string' ? body.length === 0 : body.byteLength === 0;
-  const responseBody = isNullBodyStatus(status) || isEmpty ? null : body;
+  const responseBody = isNullBodyStatus(status) || isEmpty ? null : toFetchResponseBody(body);
   const response = new Response(responseBody, { status, statusText, headers });
 
   return {
