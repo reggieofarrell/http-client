@@ -164,6 +164,36 @@ export class TimeoutError extends HttpClientError {
 }
 
 /**
+ * Construction options for {@link HttpError}.
+ *
+ * Everything that used to be a positional constructor argument lives here so callers
+ * (and this library's own `processError` path) can name each field at the call site.
+ *
+ * @typeParam TErrorBody - Shape of `response.data`, matching `HttpError<TErrorBody>`.
+ */
+export interface HttpErrorOptions<TErrorBody = unknown> {
+  /** Human-readable error message (often extracted from the response body or status text) */
+  message: string;
+  /** HTTP status code from the failed response */
+  status: number;
+  /** Coarse category derived from the status (auth, rate limit, server error, etc.) */
+  category: HttpErrorCategory;
+  /** HTTP status text from the failed response */
+  statusText: string;
+  /** Parsed response (status, headers, body) attached to the error */
+  response: HttpErrorResponse<TErrorBody>;
+  /** Request/client diagnostic metadata */
+  metadata: ErrorMetadata;
+  /** Underlying transport/xior error, when available */
+  cause?: unknown;
+  /**
+   * Explicit retriability override. When omitted, retriability is derived from
+   * `status`/`category` via `determineHttpErrorRetriability`.
+   */
+  isRetriable?: boolean;
+}
+
+/**
  * HTTP error - thrown when the server responds with a 4xx or 5xx status code
  * @typeParam TErrorBody - Shape of the error response body, if known. Defaults to `unknown`.
  * Not tied to any request method's type parameter - provide it yourself at the catch site.
@@ -184,35 +214,26 @@ export class HttpError<TErrorBody = unknown> extends HttpClientError {
   response: HttpErrorResponse<TErrorBody>;
 
   /**
-   * Creates an instance of HttpError
-   * @param message - Human-readable error message
-   * @param status - HTTP status code
-   * @param category - Error category
-   * @param statusText - HTTP status text
-   * @param response - Response object
-   * @param metadata - Diagnostic metadata
-   * @param cause - The original error that caused this error
-   * @param isRetriable - Whether the error is retriable (determined automatically if not provided)
+   * Creates an `HttpError` from a single options object.
+   *
+   * All fields live on the options bag (rather than a long positional list) so construction
+   * stays readable and stays well under Sonar's parameter-count limit (S107). `isRetriable`
+   * is optional: omit it to derive retriability from `status`/`category`; pass `false`
+   * explicitly when you need to override a normally-retriable status.
+   *
+   * @param options - Message, HTTP details, metadata, and optional cause/retriability
    */
-  constructor(
-    message: string,
-    status: number,
-    category: HttpErrorCategory,
-    statusText: string,
-    response: HttpErrorResponse<TErrorBody>,
-    metadata: ErrorMetadata,
-    cause?: any,
-    isRetriable?: boolean
-  ) {
-    // Determine retriability if not explicitly provided
+  constructor(options: HttpErrorOptions<TErrorBody>) {
+    // Prefer an explicit override when provided; otherwise derive from status/category.
+    // `??` (not `||`) so a deliberate `false` override is preserved (S6606 / S7735).
     const retriable =
-      isRetriable !== undefined ? isRetriable : determineHttpErrorRetriability(status, category);
+      options.isRetriable ?? determineHttpErrorRetriability(options.status, options.category);
 
-    super(message, 'HTTP_ERROR', metadata, retriable, cause);
-    this.status = status;
-    this.category = category;
-    this.statusText = statusText;
-    this.response = response;
+    super(options.message, 'HTTP_ERROR', options.metadata, retriable, options.cause);
+    this.status = options.status;
+    this.category = options.category;
+    this.statusText = options.statusText;
+    this.response = options.response;
   }
 }
 

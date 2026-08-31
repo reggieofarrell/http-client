@@ -11,6 +11,7 @@ import {
   buildProgressEvent,
   settleFromResponse,
   isErrorLike,
+  stringifyHeaderValue,
   type RequestConfigWithProgress,
 } from './shared.js';
 
@@ -27,12 +28,18 @@ import {
  * against a real xior instance, not assumed - so none of these need a fallback here. `url` is the
  * one exception: it comes directly from what the caller passed to e.g. `client.get(url, ...)`, so
  * an empty string is a real (if unusual) possibility worth keeping a fallback for.
+ *
+ * Non-null assertions on those normalized fields are omitted deliberately: `joinPath` already
+ * accepts optional strings, and Sonar (S4325) flags assertions the receiver does not need.
  */
 function buildFinalUrl(request: XiorRequestConfig): string {
   const path = request.url || '';
-  const fullPath = isAbsoluteURL(path) ? path : joinPath(request.baseURL!, path);
+  const fullPath = isAbsoluteURL(path) ? path : joinPath(request.baseURL, path);
 
-  return buildSortedURL(fullPath, request.params!, request.paramsSerializer!);
+  // paramsSerializer is typed as required by buildSortedURL; fall back to a no-op serializer
+  // only if a non-plugin caller somehow omitted it (production plugin path always has one).
+  const paramsSerializer = request.paramsSerializer ?? (() => '');
+  return buildSortedURL(fullPath, request.params ?? null, paramsSerializer);
 }
 
 function* parseXhrResponseHeaders(raw: string): Generator<[string, string]> {
@@ -74,16 +81,20 @@ export function performBrowserUploadRequest(
     const finalUrl = buildFinalUrl(request);
     xhr.open(request.method!.toUpperCase(), finalUrl, true);
 
-    for (const [key, value] of Object.entries(request.headers!)) {
+    for (const [key, value] of Object.entries(request.headers ?? {})) {
       if (value === undefined) continue;
       // Browsers set their own multipart boundary for FormData bodies - an explicit
       // Content-Type header would break that.
       if (isFormData && key.toLowerCase() === 'content-type') continue;
-      xhr.setRequestHeader(key, String(value));
+      xhr.setRequestHeader(key, stringifyHeaderValue(value));
     }
 
-    if (request.timeout) {
-      xhr.timeout = request.timeout;
+    // Capture timeout into a local so the ontimeout callback does not need a
+    // non-null assertion on `request.timeout` (S4325) - inside this block it is
+    // already known to be a finite number.
+    const timeoutMs = request.timeout;
+    if (timeoutMs) {
+      xhr.timeout = timeoutMs;
     }
 
     if (request.credentials === 'include') {
@@ -128,8 +139,8 @@ export function performBrowserUploadRequest(
 
     xhr.onerror = () => reject(buildNetworkError(request, new Error('Network Error')));
     // ontimeout can only fire if xhr.timeout was set above, which only happens when
-    // request.timeout was already truthy - so it's guaranteed non-null here.
-    xhr.ontimeout = () => reject(buildTimeoutError(request, request.timeout!));
+    // timeoutMs was already truthy - so it's guaranteed defined here.
+    xhr.ontimeout = () => reject(buildTimeoutError(request, timeoutMs ?? 0));
     xhr.onabort = () => reject(buildAbortError(request));
 
     if (request.signal) {

@@ -44,15 +44,15 @@ for (const relativePath of REQUIRED_FILES) {
 }
 
 const esmPackageJsonPath = join(repoRoot, 'dist/esm/package.json');
-if (!existsSync(esmPackageJsonPath)) {
-  violations.push('Missing dist/esm/package.json (expected { "type": "module" })');
-} else {
+if (existsSync(esmPackageJsonPath)) {
   const esmPackageJson = JSON.parse(readFileSync(esmPackageJsonPath, 'utf8'));
   if (esmPackageJson.type !== 'module') {
     violations.push(
       `dist/esm/package.json must declare "type": "module", got ${JSON.stringify(esmPackageJson.type)}`
     );
   }
+} else {
+  violations.push('Missing dist/esm/package.json (expected { "type": "module" })');
 }
 
 if (violations.length > 0) {
