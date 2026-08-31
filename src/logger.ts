@@ -61,7 +61,7 @@ const safeStringify = (obj: any, indent = 2): string => {
       if (typeof value !== 'object' || value === null) {
         return value;
       }
-      while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) {
+      while (ancestors.length > 0 && ancestors.at(-1) !== this) {
         ancestors.pop();
       }
       if (ancestors.includes(value)) {
