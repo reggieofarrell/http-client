@@ -493,6 +493,33 @@ describe('HttpClient', () => {
       expect(response.data.success).toBe(true);
     });
 
+    test('does not mistake a colon in the query string for a path parameter (regression)', async () => {
+      // Regression test: the path-param regex used to scan the entire URL, including the query
+      // string and fragment - a redirect URL or connection string containing "://user:pass@host"
+      // in a query value was misidentified as an unresolved :pass path parameter and threw.
+      mock.onGet('/redirect').reply(200, { success: true });
+
+      const response = await client.get('/redirect?db=redis://user:pass@host:6379');
+      expect(response.data.success).toBe(true);
+    });
+
+    test('does not mistake a colon in the URL fragment for a path parameter (regression)', async () => {
+      mock.onGet('/docs').reply(200, { success: true });
+
+      const response = await client.get('/docs#section:intro');
+      expect(response.data.success).toBe(true);
+    });
+
+    test('substitutes a real path parameter while leaving a colon in the query string alone (regression)', async () => {
+      mock.onGet('/users/123').reply(200, { userId: '123' });
+
+      const response = await client.get('/users/:id?ref=twitter:card', {
+        pathParams: { id: '123' },
+      });
+
+      expect(response.data.userId).toBe('123');
+    });
+
     test('reusing the same config object across two calls does not throw (regression)', async () => {
       // Regression test: request() used to delete config.pathParams off of the caller's own
       // config object after substitution. Reusing that object for a second call against the same

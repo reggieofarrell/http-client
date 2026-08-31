@@ -475,10 +475,19 @@ export class HttpClient {
     // across requests and skip matches. `\w` is `[A-Za-z0-9_]` without the `u` flag.
     const paramPattern = /:([a-zA-Z_]\w*)/g;
 
+    // Path parameters only ever belong in the path segment - scanning the whole URL also matched
+    // colon-then-letter runs inside the query string or fragment (e.g. a connection string like
+    // `?db=redis://user:pass@host`, or a fragment like `#section:intro`), misidentifying them as
+    // unresolved :paramName placeholders and throwing on a perfectly valid request. Split the
+    // query/fragment off first and leave it untouched.
+    const queryOrFragmentIndex = url.search(/[?#]/);
+    const pathPart = queryOrFragmentIndex === -1 ? url : url.slice(0, queryOrFragmentIndex);
+    const rest = queryOrFragmentIndex === -1 ? '' : url.slice(queryOrFragmentIndex);
+
     // If no pathParams provided, return URL as-is
     if (!pathParams || Object.keys(pathParams).length === 0) {
-      // Check if URL contains any :paramName patterns - if so, throw error
-      const matches = url.match(paramPattern);
+      // Check if the path contains any :paramName patterns - if so, throw error
+      const matches = pathPart.match(paramPattern);
       if (matches && matches.length > 0) {
         const missingParams = matches.map(match => match.substring(1)); // Remove the :
         throw new Error(
@@ -489,7 +498,7 @@ export class HttpClient {
     }
 
     // Replace each :paramName with its URL-encoded value from pathParams
-    return url.replaceAll(paramPattern, (_match, paramName: string) => {
+    const substitutedPath = pathPart.replaceAll(paramPattern, (_match, paramName: string) => {
       if (!(paramName in pathParams)) {
         throw new Error(
           `Missing required path parameter: ${paramName}. Provide value via pathParams.${paramName}`
@@ -502,6 +511,8 @@ export class HttpClient {
       // encodeURIComponent encodes everything except: A-Z a-z 0-9 - _ . ! ~ * ' ( )
       return encodeURIComponent(stringValue);
     });
+
+    return substitutedPath + rest;
   }
 
   /**

@@ -243,6 +243,14 @@ If a URL contains path parameters that aren't provided via `pathParams`, an erro
 await client.get('/users/:userId', {});
 ```
 
+`:paramName` detection only looks at the path segment, before any `?` or `#` - a colon elsewhere
+in the URL (a connection string in a query value, a named anchor in a fragment) is left alone:
+
+```typescript
+// No pathParams needed - the colons after "?" are untouched
+await client.get('/redirect?db=redis://user:pass@host:6379');
+```
+
 ### Query Parameters
 
 Pass query parameters via the `params` property (inherited from `XiorRequestConfig` - matches axios's own convention, which xior keeps for compatibility):
