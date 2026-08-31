@@ -1,0 +1,12 @@
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "sonarlint.connectedMode.project": {
+    "connectionId": "https-sonar-casadega-dev",
+    "projectKey": "reggieofarrell_http-client_fa00cd5b-d27d-4e01-ad36-07bef0a90815"
+  }
+}

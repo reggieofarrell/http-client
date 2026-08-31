@@ -80,23 +80,30 @@ it that way (see "Working mode" below).
 - Test: `npm test` (jest, ~280 tests). Coverage gate: `npm test -- --coverage`
   (`jest.config.js` `coverageThreshold`).
 - Type-check: `npm run test:types`.
-- Lint / format: `npm run lint` (eslint), `npm run check:format` (prettier --check), `npm run
-  format` (prettier --write).
+- Lint / format: `npm run lint` (eslint, including fail-closed SonarJS on production `src/`),
+  `npm run check:format` (prettier --check), `npm run format` (prettier --write).
+- SonarQube: `npm run sonar:precheck` (changed files vs `origin/main`), `npm run sonar:rules`
+  (intersect server profile with `eslint-plugin-sonarjs`). See `docs/development/sonarqube.md`.
+  The server quality gate is **new-code-only**; Jest `coverageThreshold` remains the coverage
+  authority.
 - Full local gate (mirrors CI): `npm run check:format && npm run lint && npm run rules:check &&
-  npm run test:types && npm test -- --coverage && npm run build && npm run check:build && npm run
-  check:audit`.
+  npm run test:sonar-rules && npm run test:types && npm test -- --coverage && npm run build &&
+  npm run check:build && npm run check:audit`.
 
 ## Tooling
 
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook) — this drives
   `CHANGELOG.md` generation via `commit-and-tag-version` (config: `.versionrc.json`).
-- **Agent config:** authored once under `.rulesync/` (rules + skills; just `cut-release` and
-  `write-tests` as skills, not the broader workflow-content skill sets some projects have, like
-  ADRs or docs-site sync) and generated to Cursor, Claude Code, Codex CLI, and the `AGENTS.md`
-  standard via `npm run rules:sync`. Skills (not commands) so Codex CLI actually gets them — it
-  only supports rulesync's "commands" feature in global mode, not per-project. Never hand-edit
-  `.cursor/`, `.claude/`, `.agents/`, `AGENTS.md`, or `CLAUDE.md` — `npm run rules:check` (pre-push
-  + CI) fails on drift.
+- **Agent config:** authored once under `.rulesync/` (rules, skills, and coding-agent hooks;
+  `cut-release`, `write-tests`, and `fix-sonarqube-issues`) and generated to Cursor, Claude Code,
+  Codex CLI, and the `AGENTS.md` standard via `npm run rules:sync`. Skills (not commands) so
+  Codex CLI actually gets them — it only supports rulesync's "commands" feature in global mode,
+  not per-project. Never hand-edit `.cursor/`, `.claude/`, `.agents/`, `.codex/`, `AGENTS.md`, or
+  `CLAUDE.md` — `npm run rules:check` (pre-push + CI) fails on drift.
+- **SonarQube:** layered gate (local SonarJS ESLint, agent post-edit hook, fail-closed secret
+  scans, skippable changed-file precheck, CI scan via `Casadega-Development/action-workflows`).
+  The server gate is new-code-only. Do not put tokens in source, env files, command arguments, or
+  logs.
 - **Releasing:** see the README's "Releasing" section — `npm run release[:patch|:minor|:major]`,
   push tags, `npm run release:publish` to cut the GitHub Release that triggers the OIDC npm publish
   in `.github/workflows/release.yml`.

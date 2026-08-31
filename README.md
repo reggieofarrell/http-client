@@ -30,6 +30,7 @@ A class based lightweight HTTP client for both the server and browser built on `
   - [Debugging](#debugging)
 - [Breaking Changes](#breaking-changes)
 - [Releasing](#releasing)
+- [Quality gates](#quality-gates)
 - [License](#license)
 
 ## Installation
@@ -1867,6 +1868,19 @@ there is no long-lived npm token in CI. This requires a one-time setup per maint
 a GitHub Environment named `npm` (Settings → Environments) and, from an authenticated npm CLI
 session, `npm trust github --repository reggieofarrell/http-client --file release.yml --environment
 npm --allow-publish`.
+
+## Quality gates
+
+Pull requests run format, lint (including locally implemented SonarJS rules on `src/`), types,
+Jest with `coverageThreshold`, build, and a runtime-dependency audit. Pushes to `main` also
+upload coverage to SonarQube at <https://sonar.casadega.dev> (new-code quality gate). PR
+decoration is deferred until that `main` baseline exists; see
+[docs/development/sonarqube.md](docs/development/sonarqube.md).
+
+Local Husky hooks run a fail-closed secret scan on commit and push. Coding-agent post-edit hooks
+run a type-independent SonarJS subset on production `src/` files. The changed-file Sonar
+precheck (`npm run sonar:precheck`) skips loudly when Scanner or credentials are missing; CI
+still enforces the full scan after the project is provisioned.
 
 ## License
 
