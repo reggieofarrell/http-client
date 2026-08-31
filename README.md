@@ -1733,12 +1733,12 @@ const client = new DebugClient({
 ```
 
 If you're upgrading from a version where `debug: true` produced console output automatically, see
-the [v3.1.0 migration guide](#v310---logging-moved-to-hooks-onerror-hook-added) below for the
+the [v3.0.4 migration guide](#v304---logging-moved-to-hooks-onerror-hook-added) below for the
 exact hooks that recreate it.
 
 ## Breaking Changes
 
-### v3.1.0 - Logging moved to hooks; onError hook added
+### v3.0.4 - Logging moved to hooks; onError hook added
 
 **Removed:**
 - Built-in `debug`/`debugLevel` console logging. `beforeRequest` and the internal error-classification methods no longer call `console.log` on your behalf, and this library no longer ships `src/logger.ts` at all. (`logWarning`/`logInfo`/`logError` were already dead code - unused by anything in the library; `logData` was the only one actually wired in, and it powered exactly the output being removed here.) A hardcoded, ANSI-colored logger with no way to plug in a real one (Pino, Winston, etc.) was scope creep for a small HTTP client, and it was already redundant with `beforeRequest`/`afterResponse` - the only real gap was the failure path, which the new `onError` hook below closes properly. `debug`/`debugLevel` remain on `HttpClientOptions` and `HttpClient` unchanged - only the automatic console output is gone; they're now plain flags for you to read inside your own hook overrides. See [Debugging](#debugging) and the migration example below.
@@ -1751,7 +1751,7 @@ exact hooks that recreate it.
 If you relied on `debug: true` for its old built-in console output, recreate it explicitly with hooks:
 
 ```typescript
-// Before (v3.0.x and earlier) - built-in, undocumented-format console output
+// Before (3.0.3 and earlier) - built-in, undocumented-format console output
 const client = new HttpClient({
   baseURL: 'https://api.example.com',
   debug: true,
@@ -1759,7 +1759,7 @@ const client = new HttpClient({
 });
 // GET/POST/etc. requests and their errors were logged to the console automatically.
 
-// After (v3.1.0+) - explicit, and shaped however you want
+// After (3.0.4+) - explicit, and shaped however you want
 import { HttpClient, RequestType } from '@reggieofarrell/http-client';
 
 class DebugClient extends HttpClient {
