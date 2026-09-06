@@ -106,8 +106,12 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: write
-    uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@main
+      # The reusable workflow restores locked Node dependencies before analysis and therefore
+      # requires package-registry read access even when this repository only uses public packages.
+      packages: read
+    # Pin the reusable workflow so an upstream permission or input change cannot invalidate every
+    # job in this workflow before GitHub Actions has a chance to schedule it.
+    uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@a96e595aba1e283947b6a617dfe872e27323a190
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
