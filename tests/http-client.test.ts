@@ -1056,6 +1056,89 @@ describe('HttpClient', () => {
       expect(delay).toBe(5000); // 5 seconds in milliseconds
     });
 
+    test('respects Retry-After from a native Fetch Headers object (regression)', () => {
+      // Regression test for issue #35: xior preserves `Response.headers` as a native Fetch
+      // `Headers` instance. Bracket access returns undefined for that shape even though `get()`
+      // returns the header, so the real request path previously ignored Retry-After entirely.
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        retryConfig: {
+          retries: 3,
+          delayFactor: 100,
+          backoff: 'exponential',
+          backoffJitter: 'full',
+        },
+      });
+      const mockError: any = {
+        response: {
+          headers: new Headers({ 'Retry-After': '5' }),
+        },
+      };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'full');
+
+      expect(delay).toBe(5000);
+    });
+
+    test('retains compatibility with a single-value Retry-After header array', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const mockError: any = {
+        response: {
+          headers: { 'retry-after': ['5'] },
+        },
+      };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'none');
+
+      expect(delay).toBe(5000);
+    });
+
+    test('retains compatibility with a numeric Retry-After header value', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const mockError: any = {
+        response: {
+          headers: { 'retry-after': 5 },
+        },
+      };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'none');
+
+      expect(delay).toBe(5000);
+    });
+
+    test.each([
+      ['an empty string', { 'retry-after': '' }],
+      ['a whitespace-only string', { 'retry-after': '   ' }],
+      ['a whitespace-only single-value array', { 'retry-after': ['   '] }],
+      ['an unsupported object', { 'retry-after': { seconds: 5 } }],
+      ['a multi-value array', { 'retry-after': ['5', '10'] }],
+    ])('falls back to calculated backoff for %s Retry-After value', (_description, headers) => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const mockError: any = { response: { headers } };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'none');
+
+      // Unsupported representations must not become accidental zero- or long-delay timers. The
+      // normal configured calculation remains the sole fallback when no valid header is readable.
+      expect(delay).toBe(100);
+    });
+
+    test('falls back to calculated backoff for coalesced native Retry-After values', () => {
+      // Fetch combines duplicate response-header lines into one comma-separated string. Since an
+      // HTTP date itself contains a comma, the parser must validate the complete allowed shapes
+      // instead of treating every Date-parseable string as a legitimate server instruction.
+      const headers = new Headers();
+      headers.append('Retry-After', '5');
+      headers.append('Retry-After', '10');
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+      const mockError: any = { response: { headers } };
+
+      const delay = (client as any).getRetryDelay(1, mockError, 'exponential', 100, 'none');
+
+      expect(headers.get('Retry-After')).toBe('5, 10');
+      expect(delay).toBe(100);
+    });
+
     test('respects Retry-After header with HTTP date string', () => {
       const client = new HttpClient({
         baseURL: 'https://api.example.com',
@@ -1208,6 +1291,42 @@ describe('HttpClient', () => {
       const result = (client as any).parseRetryAfter(futureDate.toUTCString());
       expect(result).toBeGreaterThan(4000);
       expect(result).toBeLessThanOrEqual(5000);
+    });
+
+    test.each([
+      ['IMF-fixdate', 'Sun, 06 Nov 1994 08:49:37 GMT'],
+      ['obsolete RFC 850 date', 'Sunday, 06-Nov-94 08:49:37 GMT'],
+      ['obsolete asctime date', 'Sun Nov  6 08:49:37 1994'],
+    ])('parseRetryAfter accepts the %s HTTP-date representation', (_description, value) => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+
+      const result = (client as any).parseRetryAfter(value);
+
+      // The fixtures are intentionally historical, so successful parsing is observable as the
+      // documented zero clamp; rejecting their syntax would return null instead.
+      expect(result).toBe(0);
+    });
+
+    test('parseRetryAfter rejects a coalesced numeric list instead of treating it as a date', () => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+
+      const result = (client as any).parseRetryAfter('5, 10');
+
+      expect(result).toBeNull();
+    });
+
+    test.each([
+      ['a whitespace-only string', '   '],
+      ['a non-numeric number', Number.NaN],
+      ['an HTTP-date-shaped value that is not a real date', 'Sun, 99 Nov 1994 08:49:37 GMT'],
+    ])('parseRetryAfter rejects %s', (_description, value) => {
+      const client = new HttpClient({ baseURL: 'https://api.example.com' });
+
+      const result = (client as any).parseRetryAfter(value);
+
+      // These cases exercise the parser's defenses even when it is called directly, rather than
+      // relying only on readRetryAfter to filter malformed response-header containers first.
+      expect(result).toBeNull();
     });
 
     test('parseRetryAfter returns null for invalid input', () => {

@@ -202,9 +202,78 @@ export interface HttpClientOptions {
  */
 const MAX_RETRY_AFTER_MS = 2_147_483_647;
 
+/**
+ * HTTP-date shapes accepted by RFC 9110: the preferred IMF-fixdate representation plus the two
+ * obsolete representations recipients must continue to understand. Checking the shape before
+ * invoking JavaScript's permissive Date parser prevents coalesced duplicate header values such as
+ * `5, 10` from being reinterpreted as an unrelated historical date and becoming a zero-delay retry.
+ * The fragments keep each expression readable and below the repository's regex-complexity limit.
+ */
+const SHORT_DAY_NAME_PATTERN = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)';
+const LONG_DAY_NAME_PATTERN = '(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)';
+const MONTH_PATTERN = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
+// String.raw keeps the regular-expression escapes legible while preserving the literal
+// backslashes required by the RegExp constructor.
+const TIME_OF_DAY_PATTERN = String.raw`\d{2}:\d{2}:\d{2}`;
+const HTTP_DATE_PATTERNS = {
+  imfFixdate: new RegExp(
+    String.raw`^${SHORT_DAY_NAME_PATTERN}, \d{2} ${MONTH_PATTERN} \d{4} ${TIME_OF_DAY_PATTERN} GMT$`
+  ),
+  rfc850: new RegExp(
+    String.raw`^${LONG_DAY_NAME_PATTERN}, \d{2}-${MONTH_PATTERN}-\d{2} ${TIME_OF_DAY_PATTERN} GMT$`
+  ),
+  asctime: new RegExp(
+    String.raw`^${SHORT_DAY_NAME_PATTERN} ${MONTH_PATTERN} (?:\d{2}| \d) ${TIME_OF_DAY_PATTERN} \d{4}$`
+  ),
+} as const;
+
 /** Clamps a parsed Retry-After delay (ms) into `[0, MAX_RETRY_AFTER_MS]`. */
 function clampRetryDelay(delayMs: number): number {
   return Math.min(Math.max(delayMs, 0), MAX_RETRY_AFTER_MS);
+}
+
+/**
+ * Reads a Retry-After value from the native Fetch `Headers` object xior returns.
+ *
+ * Plain records remain supported because older adapters and existing consumer-provided test
+ * doubles may still expose response headers in the axios-style shape this client historically
+ * accepted. The native getter is preferred because Fetch header lookup is case-insensitive and
+ * bracket access cannot read values stored inside a `Headers` instance.
+ *
+ * @param headers Unknown response-header container supplied by xior or a compatible adapter.
+ * @returns A non-empty Retry-After value, or `undefined` when the container has no usable value.
+ */
+function readRetryAfter(headers: unknown): string | number | undefined {
+  if (headers === null || typeof headers !== 'object') {
+    return undefined;
+  }
+
+  const getter = (headers as { get?: (name: string) => unknown }).get;
+  if (typeof getter === 'function') {
+    // Call the method with its original receiver because native Headers implementations depend on
+    // internal state attached to the instance and reject an unbound invocation.
+    const value = getter.call(headers, 'retry-after');
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  const record = headers as Record<string, unknown>;
+  const directValue = record['retry-after'] ?? record['Retry-After'];
+  if (typeof directValue === 'string') {
+    return directValue.trim().length > 0 ? directValue : undefined;
+  }
+
+  if (typeof directValue === 'number') {
+    return directValue;
+  }
+
+  if (Array.isArray(directValue) && directValue.length === 1) {
+    const [arrayValue] = directValue;
+    return typeof arrayValue === 'string' && arrayValue.trim().length > 0 ? arrayValue : undefined;
+  }
+
+  return undefined;
 }
 
 export class HttpClient {
@@ -360,16 +429,14 @@ export class HttpClient {
     delayFactor: number,
     jitter: JitterOptions
   ): number {
-    // Check for Retry-After header - it takes precedence over calculated delays
-    if (error.response?.headers) {
-      const headers = error.response.headers as any;
-      const retryAfter = headers['retry-after'] || headers['Retry-After'];
-      if (retryAfter) {
-        const retryAfterMs = this.parseRetryAfter(retryAfter);
-        if (retryAfterMs !== null) {
-          // Return Retry-After value without jitter (server-specified delay)
-          return retryAfterMs;
-        }
+    // A valid server-provided delay takes precedence over local backoff and deliberately bypasses
+    // jitter. Reading through the helper is important because xior preserves Fetch's native
+    // `Headers` object, whose values are not available through object-property indexing.
+    const retryAfter = readRetryAfter(error.response?.headers);
+    if (retryAfter !== undefined) {
+      const retryAfterMs = this.parseRetryAfter(retryAfter);
+      if (retryAfterMs !== null) {
+        return retryAfterMs;
       }
     }
 
@@ -415,8 +482,15 @@ export class HttpClient {
   }
 
   private parseRetryAfter(retryAfter: string | number): number | null {
-    // If it's a number (or string number), treat as seconds
-    const asNumber = Number(retryAfter);
+    // Preserve the existing numeric compatibility surface, including numeric values supplied by
+    // legacy adapters and very large values that need the setTimeout clamp below. String trimming
+    // is safe here because HTTP field-value whitespace is not part of delay-seconds itself.
+    const normalizedValue = typeof retryAfter === 'string' ? retryAfter.trim() : retryAfter;
+    if (normalizedValue === '') {
+      return null;
+    }
+
+    const asNumber = Number(normalizedValue);
     if (!Number.isNaN(asNumber)) {
       // Clamp to [0, MAX_RETRY_AFTER_MS]: negative values (a malformed/adversarial header) become
       // 0, and anything - including `Infinity` - past setTimeout's 32-bit limit is capped rather
@@ -424,8 +498,22 @@ export class HttpClient {
       return clampRetryDelay(asNumber * 1000); // Convert to milliseconds
     }
 
-    // Try parsing as HTTP date
-    const asDate = new Date(retryAfter);
+    if (typeof normalizedValue !== 'string') {
+      return null;
+    }
+
+    const isImfFixdate = HTTP_DATE_PATTERNS.imfFixdate.test(normalizedValue);
+    const isRfc850Date = HTTP_DATE_PATTERNS.rfc850.test(normalizedValue);
+    const isAsctimeDate = HTTP_DATE_PATTERNS.asctime.test(normalizedValue);
+    if (!isImfFixdate && !isRfc850Date && !isAsctimeDate) {
+      return null;
+    }
+
+    // JavaScript interprets asctime strings in the process's local timezone even though HTTP
+    // defines that legacy representation as UTC. Supplying the otherwise implicit GMT suffix keeps
+    // its semantics consistent with the two representations that already carry an explicit zone.
+    const dateValue = isAsctimeDate ? `${normalizedValue} GMT` : normalizedValue;
+    const asDate = new Date(dateValue);
     if (!Number.isNaN(asDate.getTime())) {
       return clampRetryDelay(asDate.getTime() - Date.now());
     }
