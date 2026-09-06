@@ -100,9 +100,8 @@ it that way (see "Working mode" below).
   points at an executable file — the executable bit is invisible to a normal content diff, so
   nothing else catches it losing that bit. `npm run test:hook-permissions` unit-tests the checker
   itself. See `scripts/check-hook-permissions.mjs`.
-- Full local gate (mirrors CI): `npm run check:format && npm run lint && npm run rules:check &&
-  npm run check:hooks && npm run test:sonar-rules && npm run test:types && npm test -- --coverage
-  && npm run build && npm run check:build && npm run check:audit`.
+- Full local gate: `npm run release:verify`. It includes package-content and dual-README lifecycle
+  checks in addition to formatting, lint, RuleSync, hooks, types, coverage, build, and audit.
 
 ## Tooling
 
@@ -118,9 +117,12 @@ it that way (see "Working mode" below).
   scans, skippable changed-file precheck, CI scan via `Casadega-Development/action-workflows`).
   The server gate is new-code-only. Do not put tokens in source, env files, command arguments, or
   logs.
-- **Releasing:** see the README's "Releasing" section — `npm run release[:patch|:minor|:major]`,
-  push tags, `npm run release:publish` to cut the GitHub Release that triggers the OIDC npm publish
-  in `.github/workflows/release.yml`.
+- **Releasing:** follow `docs/development/releasing.md` and the `cut-release` skill. Preview with
+  `release:bump:dry`, land `release:bump` through a release PR without a tag, then create the GitHub
+  Release from merged `main` with `release:publish`; the release event triggers OIDC npm publication.
+- **Dual READMEs:** GitHub shows contributor-focused `README.md`; npm receives `npm-readme.md`
+  temporarily staged as the tarball root README. Keep shared consumer facts aligned and run
+  `check:package`; never commit `.README.github.bak` or a staged swap.
 - **Node/npm version:** pinned via `.nvmrc`; `scripts/check-node-version.sh` (sourced from every
   Husky hook) enforces it locally and also checks npm is new enough to honor `.npmrc`'s
   `min-release-age` supply-chain cooldown.

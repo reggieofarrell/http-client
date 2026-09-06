@@ -27,5 +27,8 @@ yarn-error.log*
 
 /tmp
 
+# Temporary contributor README backup created only while npm packs or publishes the consumer README.
+.README.github.bak
+
 # SonarQube Scanner working directory (local and CI)
 .scannerwork

@@ -1,3 +1,5 @@
+<!-- npm-readme -->
+
 # Http Client
 
 A class based lightweight HTTP client for both the server and browser built on `xior` with retry functionality, written in TypeScript.
@@ -29,9 +31,6 @@ A class based lightweight HTTP client for both the server and browser built on `
   - [Error Handling](#error-handling)
   - [Debugging](#debugging)
 - [Breaking Changes](#breaking-changes)
-- [Repository and npm READMEs](#repository-and-npm-readmes)
-- [Releasing](#releasing)
-- [Quality gates](#quality-gates)
 - [License](#license)
 
 ## Installation
@@ -2013,54 +2012,6 @@ try {
   }
 }
 ```
-
-## Repository and npm READMEs
-
-GitHub renders this contributor-oriented `README.md`. npm consumers receive the focused
-`npm-readme.md`, which is temporarily staged as the tarball's root `README.md` by the `prepack` and
-`postpack` lifecycle scripts. There is no package-manifest field for an alternate npm README.
-
-Keep installation, package behavior, examples, migration guidance, and consumer-facing links
-consistent in both sources. Contributor setup, quality gates, architecture, and release operations
-belong only here. Never commit `.README.github.bak` or a staged replacement; recover an interrupted
-pack with `node scripts/stage-npm-readme.mjs restore`.
-
-`npm run check:package` verifies the npm-facing marker, required runtime and declaration entrypoints,
-the root-file allowlist, and restoration of this contributor README.
-
-## Releasing
-
-Releases use a protected two-phase flow. Start from a clean, current `main`, run
-`npm run release:verify`, then preview with `npm run release:bump:dry`. Obtain explicit approval of
-the proposed semver before writing anything.
-
-Create `release/x.y.z`, run `npm run release:bump` (or pass an approved `--release-as` override),
-and open a PR. The bump updates `package.json` and `CHANGELOG.md` and creates the release commit but
-does not create a tag. Git hooks remain enabled.
-
-After the release PR merges, pull `main` and run `npm run release:publish`. That creates the
-`vx.y.z` GitHub Release on `main`; the release event runs verification and publishes through npm
-Trusted Publishing. Never run `npm publish` locally. See
-[docs/development/releasing.md](docs/development/releasing.md) for the complete process and recovery guidance.
-
-Publishing to npm uses [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) —
-there is no long-lived npm token in CI. This requires a one-time setup per maintainer machine/repo:
-a GitHub Environment named `npm` (Settings → Environments) and, from an authenticated npm CLI
-session, `npm trust github --repository reggieofarrell/http-client --file release.yml --environment
-npm --allow-publish`.
-
-## Quality gates
-
-Pull requests run format, lint (including locally implemented SonarJS rules on `src/`), types,
-Jest with `coverageThreshold`, build, and a runtime-dependency audit. Pushes to `main` also
-upload coverage to SonarQube at <https://sonar.casadega.dev> (new-code quality gate). PR
-decoration is deferred until that `main` baseline exists; see
-[docs/development/sonarqube.md](docs/development/sonarqube.md).
-
-Local Husky hooks run a fail-closed secret scan on commit and push. Coding-agent post-edit hooks
-run a type-independent SonarJS subset on production `src/` files. The changed-file Sonar
-precheck (`npm run sonar:precheck`) skips loudly when Scanner or credentials are missing; CI
-still enforces the full scan after the project is provisioned.
 
 ## License
 

@@ -9,12 +9,15 @@ make a commit or push complete. Diagnose a failing gate, fix the underlying
 problem, and rerun it. A deliberate emergency bypass is an accountable human
 decision, not a routine agent shortcut.
 
-Run the full local gate before handing off a change that should match CI
-(format, lint, RuleSync, hook permissions, SonarJS helper tests, types, coverage, build, audit):
-
-`npm run check:format && npm run lint && npm run rules:check && npm run check:hooks && npm run test:sonar-rules && npm run test:types && npm test -- --coverage && npm run build && npm run check:build && npm run check:audit`
+Run `npm run release:verify` before handing off a merge-ready change. It is the canonical complete
+gate: formatting, lint, RuleSync, hook permissions, repository-script tests, SonarJS helper tests,
+types, coverage, build output, package contents including dual-README staging, and runtime audit.
 
 Everyday pre-push still runs the lighter `rules:check`, `check:hooks`, and `npm test`.
+
+The package release flow is preview-first and PR-based. Never restore the old `--no-verify` release
+commands, create a release tag on the branch, push a generated release commit directly to `main`, or
+publish locally. Follow `docs/development/releasing.md` and the `cut-release` skill.
 
 - The Jest `coverageThreshold` in `jest.config.js` is a ratchet. Never lower it
   merely to make a change pass; add meaningful coverage or document an

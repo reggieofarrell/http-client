@@ -13,9 +13,10 @@ the change is user-visible or breaking, it needs a durable record of that fact.
 
 When you change this surface:
 
-1. **Update the matching README section.** The README documents config options, error types, and
-   behavior in detail (e.g. the "Idempotency Controls", "Error Handling"/"Error Types", and "Retry
-   Configuration" sections). A behavior change that isn't reflected there is effectively
+1. **Update the matching consumer documentation in both READMEs.** `README.md` and
+   `npm-readme.md` document config options, error types, and behavior in detail (e.g. the
+   "Idempotency Controls", "Error Handling"/"Error Types", and "Retry Configuration" sections). A
+   behavior change that isn't reflected there is effectively
    undocumented — this has already happened for real: the idempotency-caching simplification, the
    new `AbortError` type, and the OpenAPI codegen removal each required updating multiple README
    sections, not just the code.
@@ -30,3 +31,7 @@ When you change this surface:
    commitment (see `.rulesync/rules/overview.md`'s note on this). Adding a new export is a real API
    decision, not an automatic mirror of everything internal — the same restraint applies here as to
    adding a new feature at all.
+
+Use the dual-README lifecycle documented in `docs/development/releasing.md`. Contributor-only
+release, testing, and quality-gate material remains in `README.md`; consumer behavior and migration
+facts must agree in both sources. Run `npm run check:package` after updating either README.

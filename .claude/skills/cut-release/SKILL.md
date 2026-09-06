@@ -1,26 +1,32 @@
 ---
 name: cut-release
-description: Cut and publish a new release of @reggieofarrell/http-client
+description: >-
+  Preview and prepare an @reggieofarrell/http-client semver release through a
+  protected release branch, then publish it from merged main through a GitHub
+  Release and npm OIDC. Always stop for explicit version approval before writing
+  the release commit.
 ---
 # Cut a release
 
-1. Confirm the working tree is clean and `main` is up to date. Run the full local gate first:
-   `npm run check:format && npm run lint && npm run rules:check && npm run test:types && npm test --
-   --coverage && npm run build && npm run check:build`.
-2. Preview the version bump and changelog: `npm run release:test` (dry run — reads Conventional
-   Commit history since the last tag, uses `.versionrc.json` for section headers).
-3. If it looks right, cut it for real: `npm run release` (or `release:patch` / `release:minor` /
-   `release:major` to force a specific bump instead of letting commit types decide). This bumps
-   `package.json`/`package-lock.json`, updates `CHANGELOG.md`, commits, and tags.
-4. Push the commit and tag: `git push --follow-tags origin main`.
-5. Create the GitHub Release, which triggers `.github/workflows/release.yml`'s publish job:
-   `npm run release:publish` (wraps `gh release create v$npm_package_version --generate-notes`).
-6. Watch the workflow run (`gh run watch` or the Actions tab) — it re-runs format/lint/type-check/
-   tests/build/`check:audit` (deliberately not `rules:check` - agent-instruction drift is a DX
-   concern for PR review, not something that should block a publish), then publishes to npm via
-   Trusted Publishing (OIDC, no token). If it fails on the OIDC step and this is the first release
-   since that was set up, see the README's "Releasing" section for the one-time `npm trust github`
-   step and the GitHub `npm` Environment it requires.
+Read `docs/development/releasing.md` and begin on a clean, current `main`. Run
+`npm run release:verify`, then `npm run release:bump:dry`. Present the current version, proposed
+version, bump kind, commit range, and generated changelog to the user. Do not create a release branch
+or run a writing command until the user explicitly approves that version.
 
-Never manually run `npm publish` from a local machine — the point of the OIDC setup is that
-publishing only happens from this workflow.
+After approval:
+
+1. Create `release/x.y.z` for the approved version.
+2. Run `npm run release:bump`, or pass the approved `--release-as` override. The command must keep Git
+   hooks enabled and skip the branch-local tag.
+3. Review manifest and changelog output, run `npm run release:verify`, push the branch, and open a PR.
+   Never push the release commit directly to `main`.
+4. Stop until the release PR is merged.
+5. Pull the merged `main`, inspect `npm view @reggieofarrell/http-client versions --json`, and run
+   `npm run release:publish`. The GitHub Release creates the tag on `main` and triggers the OIDC
+   publish workflow.
+
+Never run `npm publish` from a developer machine. Before retrying a publish that may have partially
+succeeded, check registry state because npm versions are immutable.
+
+The package uses dual READMEs. Consumer changes must stay aligned in `README.md` and `npm-readme.md`;
+`npm run check:package` proves the marked consumer source is staged and the contributor README is restored.

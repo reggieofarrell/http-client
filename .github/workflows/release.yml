@@ -46,26 +46,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Format check
-        run: npm run check:format
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type-check
-        run: npm run test:types
-
-      - name: Tests
-        run: npm test -- --coverage
-
-      - name: Build
-        run: npm run build
-
-      - name: Verify build output
-        run: npm run check:build
-
-      - name: Runtime dependency audit
-        run: npm run check:audit
+      - name: Run release verification
+        # The same complete command is used before the release PR and again against the immutable
+        # release tag. It includes the dual-README tarball canary before publication.
+        run: npm run release:verify
 
       # No NODE_AUTH_TOKEN — the npm CLI detects the OIDC environment and
       # authenticates via Trusted Publishing. Provenance is attached automatically
