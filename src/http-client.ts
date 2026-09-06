@@ -212,16 +212,18 @@ const MAX_RETRY_AFTER_MS = 2_147_483_647;
 const SHORT_DAY_NAME_PATTERN = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)';
 const LONG_DAY_NAME_PATTERN = '(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)';
 const MONTH_PATTERN = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
-const TIME_OF_DAY_PATTERN = '\\d{2}:\\d{2}:\\d{2}';
+// String.raw keeps the regular-expression escapes legible while preserving the literal
+// backslashes required by the RegExp constructor.
+const TIME_OF_DAY_PATTERN = String.raw`\d{2}:\d{2}:\d{2}`;
 const HTTP_DATE_PATTERNS = {
   imfFixdate: new RegExp(
-    `^${SHORT_DAY_NAME_PATTERN}, \\d{2} ${MONTH_PATTERN} \\d{4} ${TIME_OF_DAY_PATTERN} GMT$`
+    String.raw`^${SHORT_DAY_NAME_PATTERN}, \d{2} ${MONTH_PATTERN} \d{4} ${TIME_OF_DAY_PATTERN} GMT$`
   ),
   rfc850: new RegExp(
-    `^${LONG_DAY_NAME_PATTERN}, \\d{2}-${MONTH_PATTERN}-\\d{2} ${TIME_OF_DAY_PATTERN} GMT$`
+    String.raw`^${LONG_DAY_NAME_PATTERN}, \d{2}-${MONTH_PATTERN}-\d{2} ${TIME_OF_DAY_PATTERN} GMT$`
   ),
   asctime: new RegExp(
-    `^${SHORT_DAY_NAME_PATTERN} ${MONTH_PATTERN} (?:\\d{2}| \\d) ${TIME_OF_DAY_PATTERN} \\d{4}$`
+    String.raw`^${SHORT_DAY_NAME_PATTERN} ${MONTH_PATTERN} (?:\d{2}| \d) ${TIME_OF_DAY_PATTERN} \d{4}$`
   ),
 } as const;
 
