@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.5](https://github.com/reggieofarrell/http-client/compare/v3.0.4...v3.0.5) (2026-09-06)
+
+
+### Fixed
+
+* honor Retry-After response headers ([#36](https://github.com/reggieofarrell/http-client/issues/36)) ([42a22e3](https://github.com/reggieofarrell/http-client/commit/42a22e30e80c576109d0f60e8efe57d369133a9b))
+
 ## [3.0.4](https://github.com/reggieofarrell/http-client/compare/v3.0.3...v3.0.4) (2026-08-31)
 
 
