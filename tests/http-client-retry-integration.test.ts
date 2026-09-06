@@ -1,5 +1,6 @@
-import { createServer, Server } from 'node:http';
-import { AddressInfo } from 'node:net';
+import { createServer } from 'node:http';
+import type { OutgoingHttpHeaders, Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { HttpClient } from '../src/http-client';
 import { HttpError } from '../src/errors';
 
@@ -19,21 +20,53 @@ import { HttpError } from '../src/errors';
  * competing for position, so this exercises the exact same code path production traffic does.
  */
 
+interface RetryTestResponse {
+  status: number;
+  headers?: OutgoingHttpHeaders;
+}
+
+interface RetryTestServer {
+  server: Server;
+  baseURL: string;
+  getRequestCount: () => number;
+  getRequestTimes: () => number[];
+}
+
+/**
+ * Starts a loopback HTTP server that records every request received by the real fetch/xior path.
+ *
+ * Returning a number keeps the concise status-only form used by the existing retry-count tests.
+ * Returning a response descriptor additionally lets timing regressions supply headers without
+ * replacing this shared server harness with one-off server implementations.
+ */
 function startServer(
-  handler: (reqCount: number) => number
-): Promise<{ server: Server; baseURL: string; getRequestCount: () => number }> {
+  handler: (reqCount: number) => number | RetryTestResponse
+): Promise<RetryTestServer> {
   let requestCount = 0;
+  const requestTimes: number[] = [];
   const server = createServer((_req, res) => {
     requestCount++;
-    const status = handler(requestCount);
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    requestTimes.push(Date.now());
+    const handlerResult = handler(requestCount);
+    const response = typeof handlerResult === 'number' ? { status: handlerResult } : handlerResult;
+    res.writeHead(response.status, {
+      'Content-Type': 'application/json',
+      ...response.headers,
+    });
     res.end(JSON.stringify({ requestCount }));
   });
 
   return new Promise(resolve => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
-      resolve({ server, baseURL: `http://127.0.0.1:${port}`, getRequestCount: () => requestCount });
+      resolve({
+        server,
+        baseURL: `http://127.0.0.1:${port}`,
+        getRequestCount: () => requestCount,
+        // Return a copy so assertions cannot mutate the server's observation history while a
+        // request is still in flight or accidentally affect another assertion in the same test.
+        getRequestTimes: () => [...requestTimes],
+      });
     });
   });
 }
@@ -158,6 +191,101 @@ describe('HttpClient retries against a real server', () => {
       await expect(client.get('/missing')).rejects.toThrow();
 
       expect(getRequestCount()).toBe(1);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test('a numeric Retry-After header delays a real 429 retry without jitter (regression)', async () => {
+    // Regression test for issue #35. This must use the public API and a real server because xior's
+    // MockPlugin cannot expose its rejection to the retry plugin in HttpClient's plugin order.
+    const { server, baseURL, getRequestCount, getRequestTimes } = await startServer(() => ({
+      status: 429,
+      headers: { 'Retry-After': '1' },
+    }));
+
+    try {
+      const client = new HttpClient({
+        baseURL,
+        retryConfig: {
+          retries: 1,
+          delayFactor: 1,
+          backoffJitter: 'full',
+        },
+      });
+
+      await expect(client.get('/rate-limited')).rejects.toThrow();
+
+      const requestTimes = getRequestTimes();
+      const firstRequestAt = requestTimes.at(0)!;
+      const secondRequestAt = requestTimes.at(1)!;
+      expect(getRequestCount()).toBe(2);
+      // Permit ordinary timer and clock granularity while keeping the threshold far above the
+      // near-zero jittered fallback that exposed the bug.
+      expect(secondRequestAt - firstRequestAt).toBeGreaterThanOrEqual(900);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test('an HTTP-date Retry-After header delays a real 429 retry until the specified time', async () => {
+    let retryAt = 0;
+    const { server, baseURL, getRequestCount, getRequestTimes } = await startServer(
+      requestCount => {
+        if (requestCount === 1) {
+          // HTTP dates only preserve whole seconds. Aligning first and then adding one second makes
+          // the requested wait reliably fall between one and two seconds instead of being truncated
+          // to an arbitrarily short delay near a second boundary.
+          retryAt = Math.ceil(Date.now() / 1000) * 1000 + 1000;
+        }
+
+        return {
+          status: 429,
+          headers: { 'Retry-After': new Date(retryAt).toUTCString() },
+        };
+      }
+    );
+
+    try {
+      const client = new HttpClient({
+        baseURL,
+        retryConfig: { retries: 1, delayFactor: 1, backoffJitter: 'none' },
+      });
+
+      await expect(client.get('/rate-limited-until')).rejects.toThrow();
+
+      const secondRequestAt = getRequestTimes().at(1)!;
+      expect(getRequestCount()).toBe(2);
+      // A small tolerance protects against millisecond clock granularity without allowing the
+      // immediate backoff fallback that occurred when the native Headers object was unreadable.
+      expect(secondRequestAt).toBeGreaterThanOrEqual(retryAt - 100);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test('a response without Retry-After continues to use the configured short backoff', async () => {
+    const { server, baseURL, getRequestCount, getRequestTimes } = await startServer(() => 500);
+
+    try {
+      const client = new HttpClient({
+        baseURL,
+        retryConfig: {
+          retries: 1,
+          delayFactor: 50,
+          backoff: 'none',
+          backoffJitter: 'none',
+        },
+      });
+
+      await expect(client.get('/no-retry-after')).rejects.toThrow();
+
+      const requestTimes = getRequestTimes();
+      const firstRequestAt = requestTimes.at(0)!;
+      const secondRequestAt = requestTimes.at(1)!;
+      const retryGap = secondRequestAt - firstRequestAt;
+      expect(getRequestCount()).toBe(2);
+      expect(retryGap).toBeGreaterThanOrEqual(40);
     } finally {
       await closeServer(server);
     }
