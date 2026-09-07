@@ -3,10 +3,10 @@
   "sources": {
     "@casadega-development/ts-repo-tooling": {
       "registry": "https://npm.pkg.github.com",
-      "requestedVersion": "0.7.0",
-      "resolvedVersion": "0.7.0",
-      "integrity": "sha512-/DmNId8a7hkb2BqXEhDyVbOdSd9Y8mX2vNEI4vB23Pz0QsB4bXFEY86tgSshrSZUikDK1ZVYDVlH5rX2zW7UtA==",
-      "resolvedAt": "2026-09-07T16:46:54.901Z",
+      "requestedVersion": "0.8.0",
+      "resolvedVersion": "0.8.0",
+      "integrity": "sha512-/mySbkm8cot65X4jfQbMXfv30vK97Fhve3IgS1JzrUQyo/WbN1xlnaSaP62GmnJumTpyX5s2Snj6jXJn18SxLQ==",
+      "resolvedAt": "2026-09-07T17:41:17.998Z",
       "skills": {
         "casadega-plan-execution": {
           "integrity": "sha256-50aa479271b4cd70f7ee27c13854396546b7f3c39b4b872aa85b4b527a0643ba"
@@ -16,6 +16,9 @@
         },
         "casadega-implementation-review": {
           "integrity": "sha256-836f8303c30b689f3637382cce845fa16784230bc004b1facad80ee83bc8b021"
+        },
+        "casadega-create-branch": {
+          "integrity": "sha256-3b591ff8c4113f6e2b69558c0920d380f46ac28d836b6be450af24ec4383f669"
         },
         "casadega-dependency-upgrade": {
           "integrity": "sha256-3094b8fc72de3c511f28ac45f7801a8252d6672e4d558617acaa5683ed0e0ab2"
@@ -27,7 +30,7 @@
           "integrity": "sha256-9e5257b916dfd22175ee5c657895927b436d0d818cc5ce7db4e71abde3d9ef8d"
         },
         "casadega-release-npm-library": {
-          "integrity": "sha256-069abee2e5e43934e013249c83c06af04395d31a5ff1d190e5f020de0895f407"
+          "integrity": "sha256-8cdd35e0908b45bdc55c57e0eaedec0b2f3e734838b1f17a8c99d89705780bb6"
         },
         "casadega-review-rules-compliance": {
           "integrity": "sha256-88a5186e7616f74e03eb7f6483a7d8dbd823f7ce8d20cb6a661dd6bb77301199"
@@ -43,6 +46,9 @@
         }
       },
       "rules": {
+        "casadega-branch-naming": {
+          "integrity": "sha256-71dc5c836d160be4ec71069b5e4b59076ef1185e8d825bff668480f9524d088b"
+        },
         "casadega-code-documentation": {
           "integrity": "sha256-9874ce208ccfb4710fd1efa028a69f9f8d0d0f46d66383c514256d9f1a089777"
         },
@@ -81,6 +87,7 @@
         }
       },
       "ruleSelection": [
+        "casadega-branch-naming",
         "casadega-code-documentation",
         "casadega-coding-fundamentals",
         "casadega-dead-code-policy",
@@ -96,6 +103,7 @@
       ],
       "rulesPath": "rules",
       "resolvedRuleNames": [
+        "casadega-branch-naming",
         "casadega-code-documentation",
         "casadega-coding-fundamentals",
         "casadega-dead-code-policy",

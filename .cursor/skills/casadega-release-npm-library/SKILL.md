@@ -19,7 +19,8 @@ release. Use an exact override only when the user approves it.
 
 ## Release branch
 
-- Create `release/<version>` from the verified default branch.
+- Create `chore/release-<version>` from the verified default branch so release work follows the
+  shared Conventional Commit branch-naming policy.
 - Run the approved version writer with Git hooks enabled and without creating a branch-local tag.
 - Review generated changelog and manifest changes, remove duplicate merge entries only through the
   repository's documented cleanup, and run package/declaration verification.
