@@ -91,9 +91,8 @@ it that way (see "Working mode" below).
   points at an executable file — the executable bit is invisible to a normal content diff, so
   nothing else catches it losing that bit. `npm run test:hook-permissions` unit-tests the checker
   itself. See `scripts/check-hook-permissions.mjs`.
-- Full local gate (mirrors CI): `npm run check:format && npm run lint && npm run rules:check &&
-  npm run check:hooks && npm run test:sonar-rules && npm run test:types && npm test -- --coverage
-  && npm run build && npm run check:build && npm run check:audit`.
+- Full local gate: `npm run release:verify`. It includes package-content and dual-README lifecycle
+  checks in addition to formatting, lint, RuleSync, hooks, types, coverage, build, and audit.
 
 ## Tooling
 
@@ -109,9 +108,12 @@ it that way (see "Working mode" below).
   scans, skippable changed-file precheck, CI scan via `Casadega-Development/action-workflows`).
   The server gate is new-code-only. Do not put tokens in source, env files, command arguments, or
   logs.
-- **Releasing:** see the README's "Releasing" section — `npm run release[:patch|:minor|:major]`,
-  push tags, `npm run release:publish` to cut the GitHub Release that triggers the OIDC npm publish
-  in `.github/workflows/release.yml`.
+- **Releasing:** follow `docs/development/releasing.md` and the `cut-release` skill. Preview with
+  `release:bump:dry`, land `release:bump` through a release PR without a tag, then create the GitHub
+  Release from merged `main` with `release:publish`; the release event triggers OIDC npm publication.
+- **Dual READMEs:** GitHub shows contributor-focused `README.md`; npm receives `npm-readme.md`
+  temporarily staged as the tarball root README. Keep shared consumer facts aligned and run
+  `check:package`; never commit `.README.github.bak` or a staged swap.
 - **Node/npm version:** pinned via `.nvmrc`; `scripts/check-node-version.sh` (sourced from every
   Husky hook) enforces it locally and also checks npm is new enough to honor `.npmrc`'s
   `min-release-age` supply-chain cooldown.
@@ -127,12 +129,15 @@ make a commit or push complete. Diagnose a failing gate, fix the underlying
 problem, and rerun it. A deliberate emergency bypass is an accountable human
 decision, not a routine agent shortcut.
 
-Run the full local gate before handing off a change that should match CI
-(format, lint, RuleSync, hook permissions, SonarJS helper tests, types, coverage, build, audit):
-
-`npm run check:format && npm run lint && npm run rules:check && npm run check:hooks && npm run test:sonar-rules && npm run test:types && npm test -- --coverage && npm run build && npm run check:build && npm run check:audit`
+Run `npm run release:verify` before handing off a merge-ready change. It is the canonical complete
+gate: formatting, lint, RuleSync, hook permissions, repository-script tests, SonarJS helper tests,
+types, coverage, build output, package contents including dual-README staging, and runtime audit.
 
 Everyday pre-push still runs the lighter `rules:check`, `check:hooks`, and `npm test`.
+
+The package release flow is preview-first and PR-based. Never restore the old `--no-verify` release
+commands, create a release tag on the branch, push a generated release commit directly to `main`, or
+publish locally. Follow `docs/development/releasing.md` and the `cut-release` skill.
 
 - The Jest `coverageThreshold` in `jest.config.js` is a ratchet. Never lower it
   merely to make a change pass; add meaningful coverage or document an

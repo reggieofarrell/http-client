@@ -14,6 +14,10 @@ on:
 permissions:
   actions: read
   contents: read
+  # The nested shared scanner restores the repository's locked dependencies before analysis and
+  # explicitly requests package-registry read access. Reusable workflows cannot elevate the
+  # caller's permissions, so omitting this permission prevents the re-scan from starting at all.
+  packages: read
   pull-requests: write
 
 concurrency:
