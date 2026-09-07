@@ -120,9 +120,10 @@ it that way (see "Working mode" below).
 - **Releasing:** follow `docs/development/releasing.md` and the `cut-release` skill. Preview with
   `release:bump:dry`, land `release:bump` through a release PR without a tag, then create the GitHub
   Release from merged `main` with `release:publish`; the release event triggers OIDC npm publication.
-- **Dual READMEs:** GitHub shows contributor-focused `README.md`; npm receives `npm-readme.md`
-  temporarily staged as the tarball root README. Keep shared consumer facts aligned and run
-  `check:package`; never commit `.README.github.bak` or a staged swap.
+- **Dual READMEs:** GitHub shows the concise contributor-focused `README.md`; npm receives the
+  authoritative consumer guide from `npm-readme.md`, temporarily staged as the tarball root README.
+  Keep each source focused on its audience, run `check:package` after changing either one, and never
+  commit `.README.github.bak` or a staged swap.
 - **Node/npm version:** pinned via `.nvmrc`; `scripts/check-node-version.sh` (sourced from every
   Husky hook) enforces it locally and also checks npm is new enough to honor `.npmrc`'s
   `min-release-age` supply-chain cooldown.

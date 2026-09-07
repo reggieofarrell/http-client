@@ -2,7 +2,17 @@
 
 # Http Client
 
-A class based lightweight HTTP client for both the server and browser built on `xior` with retry functionality, written in TypeScript.
+A lightweight, class-based TypeScript HTTP client for browser and Node.js applications, built on
+`xior` with retries, typed errors, idempotency controls, request hooks, and real upload-progress
+transports.
+
+[GitHub repository](https://github.com/reggieofarrell/http-client) ·
+[Changelog](https://github.com/reggieofarrell/http-client/blob/main/CHANGELOG.md) ·
+[Issues](https://github.com/reggieofarrell/http-client/issues)
+
+This is the consumer guide published with the npm package. Repository setup, contribution,
+quality-gate, and release-maintenance documentation lives in the
+[GitHub README](https://github.com/reggieofarrell/http-client#readme).
 
 ## Table of Contents
 

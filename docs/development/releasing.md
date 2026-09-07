@@ -67,5 +67,8 @@ Run `node scripts/stage-npm-readme.mjs restore` after an interrupted pack. The b
 must never be committed. `npm run check:package` stages and restores explicitly while checking the
 actual dry-run tarball.
 
-Keep consumer facts aligned in both READMEs. Contributor setup, quality gates, and this release guide
-belong only in the GitHub source.
+Keep the sources separated by audience. `npm-readme.md` is authoritative for installation, package
+behavior, API examples, error handling, and migrations. `README.md` is authoritative for repository
+orientation, contributor setup, architecture, quality gates, and release links. A small GitHub quick
+start may summarize stable consumer behavior, but detailed API documentation must not be duplicated
+there. Run `npm run check:package` after changing either source.
