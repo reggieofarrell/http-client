@@ -26,7 +26,7 @@ for real behavior rather than assuming their labels guarantee compatibility.
 Create a branch named for the approved version:
 
 ```bash
-git switch -c release/x.y.z
+git switch -c chore/release-x.y.z
 npm run release:bump
 ```
 
