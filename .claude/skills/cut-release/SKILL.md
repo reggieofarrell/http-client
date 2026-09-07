@@ -28,7 +28,8 @@ After approval:
 Never run `npm publish` from a developer machine. Before retrying a publish that may have partially
 succeeded, check registry state because npm versions are immutable.
 
-The package uses audience-specific dual READMEs. `npm-readme.md` is the authoritative consumer and
-API guide; `README.md` is the repository guide for contributors and maintainers. Update each only
-for facts owned by that audience. `npm run check:package` proves the marked consumer source is staged
-and the repository README is restored.
+The package uses three audience-specific documentation surfaces. The Starlight site under
+`website/` is the authoritative consumer and API guide; `README.md` is the repository guide for
+contributors and maintainers; `npm-readme.md` is the compact npm entry point. Update each only for
+facts owned by that audience. `npm run docs:build` verifies the site, while `npm run check:package`
+proves the marked npm source is staged and the repository README is restored.

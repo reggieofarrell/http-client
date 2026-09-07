@@ -32,3 +32,8 @@ yarn-error.log*
 
 # SonarQube Scanner working directory (local and CI)
 .scannerwork
+
+# Website docs artifacts
+/website/dist
+/website/.astro
+/website/node_modules

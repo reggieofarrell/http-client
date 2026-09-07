@@ -4,14 +4,14 @@ A lightweight, typed HTTP client for browser and Node.js applications. It wraps
 [xior](https://suhaotian.github.io/xior/) with consistent retries, error classification,
 idempotency controls, request hooks, and real upload-progress transports.
 
-[Consumer guide](npm-readme.md) ·
+[Documentation](https://reggieofarrell.github.io/http-client/) ·
 [npm package](https://www.npmjs.com/package/@reggieofarrell/http-client) ·
 [Changelog](CHANGELOG.md) ·
 [Issues](https://github.com/reggieofarrell/http-client/issues)
 
-This is the repository-facing guide for contributors and maintainers. The complete installation,
-configuration, API, examples, error-handling, and migration documentation lives in the
-[npm-facing consumer guide](npm-readme.md).
+This is the repository-facing guide for contributors and maintainers. Complete installation,
+configuration, API, examples, error-handling, and migration documentation lives on the
+[documentation site](https://reggieofarrell.github.io/http-client/).
 
 ## Package orientation
 
@@ -56,7 +56,7 @@ const api = new HttpClient({
 const { data } = await api.get<Todo[]>('/todos');
 ```
 
-See [npm-readme.md](npm-readme.md) for the full consumer contract, including request options,
+Use the [documentation site](https://reggieofarrell.github.io/http-client/) for request options,
 retries, idempotency, upload progress, hooks, error types, and breaking-change migration examples.
 
 ## Repository structure
@@ -66,6 +66,7 @@ retries, idempotency, upload progress, hooks, error types, and breaking-change m
 - `src/transports/` contains browser and Node.js upload-progress transports plus shared helpers.
 - `src/index.ts` defines the deliberate public root export surface.
 - `tests/` contains behavior-focused Jest coverage, including real transport integrations.
+- `website/` contains the authoritative Astro Starlight consumer documentation.
 - `scripts/` contains deterministic build, packaging, SonarQube, hook, and README lifecycle checks.
 - `.rulesync/` is the only source of coding-agent rules, skills, and hooks. Generated tool-specific
   configuration must not be edited directly.
@@ -91,6 +92,7 @@ npm run test:types
 npm test -- --coverage
 npm run check:build
 npm run check:package
+npm run docs:build
 ```
 
 Before handing off a merge-ready change, run the complete local gate:
@@ -100,8 +102,8 @@ npm run release:verify
 ```
 
 That command checks formatting, lint, generated RuleSync configuration, hook executability,
-repository scripts, types, coverage, build output, packed package contents, README staging, and
-runtime dependency vulnerabilities.
+repository scripts, types, coverage, build output, packed package contents, README staging, the
+documentation site, and runtime dependency vulnerabilities.
 
 ## Quality and automation
 
@@ -111,8 +113,8 @@ Husky and GitHub Actions enforce the repository contract:
 - `commit-msg` enforces Conventional Commits;
 - `pre-push` scans outgoing commits, runs the changed-file SonarQube precheck when credentials are
   available, verifies generated agent configuration, checks hooks, and runs tests; and
-- pull-request CI runs formatting, lint, types, coverage, build verification, dependency audit, and
-  the authoritative SonarQube quality gate.
+- pull-request CI runs formatting, lint, types, coverage, build verification, documentation build,
+  dependency audit, and the authoritative SonarQube quality gate.
 
 Do not bypass a failing gate as a routine fix. Diagnose the underlying failure and keep coverage
 thresholds, security checks, and server quality gates intact.
@@ -133,12 +135,14 @@ npm run rules:check
 
 Never hand-edit `.agents/`, `.claude/`, `.codex/`, `.cursor/`, `AGENTS.md`, or `CLAUDE.md`.
 
-## README publishing model
+## Documentation publishing model
 
-The two README sources have intentionally different audiences:
+The documentation surfaces have intentionally different audiences:
 
+- `website/src/content/docs/` is the authoritative consumer and API documentation published to
+  GitHub Pages.
 - `README.md` is this concise GitHub repository guide for contributors and maintainers.
-- `npm-readme.md` is the authoritative consumer guide rendered on npm.
+- `npm-readme.md` is a compact npm package entry point that directs consumers to the site.
 
 npm only renders a package tarball's root `README.md`, so `prepack` temporarily protects this file
 as `.README.github.bak` and stages the marked `npm-readme.md` in its place. `postpack` restores the
