@@ -1,0 +1,8 @@
+# Built docs output
+/dist
+
+# Astro-generated cache
+/.astro
+
+# Local dependencies for the docs site
+/node_modules

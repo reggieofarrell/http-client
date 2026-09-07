@@ -93,6 +93,25 @@ jobs:
           path: coverage
           if-no-files-found: warn
 
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install docs site dependencies
+        run: npm --prefix website ci
+      - name: Build docs site
+        run: npm run docs:build
+
   sonarqube:
     name: SonarQube
     needs: test
