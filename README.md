@@ -1,87 +1,171 @@
-# Http Client
+# @reggieofarrell/http-client
 
-A class-based lightweight HTTP client for Node.js and browsers built on [`xior`](https://suhaotian.github.io/xior/), with practical defaults for retries, idempotency keys, and extensible middleware hooks.
+A lightweight, typed HTTP client for browser and Node.js applications. It wraps
+[xior](https://suhaotian.github.io/xior/) with consistent retries, error classification,
+idempotency controls, request hooks, and real upload-progress transports.
 
-## Table of contents
+[Documentation](https://reggieofarrell.github.io/http-client/) ·
+[npm package](https://www.npmjs.com/package/@reggieofarrell/http-client) ·
+[Changelog](CHANGELOG.md) ·
+[Issues](https://github.com/reggieofarrell/http-client/issues)
 
-- [Documentation](#documentation)
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [Repository and npm READMEs](#repository-and-npm-readmes)
-- [Releasing](#releasing)
-- [Quality gates](#quality-gates)
-- [License](#license)
+This is the repository-facing guide for contributors and maintainers. Complete installation,
+configuration, API, examples, error-handling, and migration documentation lives on the
+[documentation site](https://reggieofarrell.github.io/http-client/).
 
-## Documentation
+## Package orientation
 
-Primary docs are hosted at the project site:
+The package provides:
 
-- https://reggieofarrell.github.io/http-client/
+- a single `HttpClient` abstraction for browser and Node.js runtimes;
+- configurable retry strategies with delay, backoff, jitter, and retry classification;
+- typed, stable error classes for HTTP, network, timeout, abort, and serialization failures;
+- explicit idempotency-key support for safely retrying logical operations;
+- path-parameter and query-parameter handling;
+- request and response extension hooks without requiring consumers to replace the transport; and
+- an opt-in upload-progress entry point with platform-specific browser and Node.js implementations.
 
-The site is organized as a multi-page docs set with getting started, usage guides, and API reference.
+The public API is intentionally small. Additions to the root export surface are compatibility
+commitments and should be made deliberately.
 
-npm-facing docs are intentionally compact and can be found in `npm-readme.md` (or npm's package page README once published).
+## Consumer quick start
 
-## Installation
+Install the published package:
 
 ```bash
 npm install @reggieofarrell/http-client
 ```
 
-## Quick start
+Create a client and make a typed request:
 
-```ts
+```typescript
 import { HttpClient } from '@reggieofarrell/http-client';
 
-const client = new HttpClient({
+interface Todo {
+  id: string;
+  title: string;
+}
+
+const api = new HttpClient({
   baseURL: 'https://api.example.com',
   retryConfig: {
     retries: 2,
-    delayFactor: 500,
   },
 });
 
-const { data } = await client.get('/status');
-console.log(data);
+const { data } = await api.get<Todo[]>('/todos');
 ```
 
-For detailed configuration, request patterns, retry strategy, error taxonomy, middleware hooks, and migration notes, use the docs site.
+Use the [documentation site](https://reggieofarrell.github.io/http-client/) for request options,
+retries, idempotency, upload progress, hooks, error types, and breaking-change migration examples.
 
-## Repository and npm READMEs
+## Repository structure
 
-GitHub renders this contributor-focused `README.md`. npm consumers receive `npm-readme.md`, which is temporarily staged as the package tarball's root `README.md` by the `prepack` and `postpack` lifecycle scripts. There is no package-manifest field for an alternate npm README.
+- `src/http-client.ts` owns request orchestration, configuration precedence, retries, and hooks.
+- `src/errors.ts` owns the public error hierarchy and retry/error classification helpers.
+- `src/transports/` contains browser and Node.js upload-progress transports plus shared helpers.
+- `src/index.ts` defines the deliberate public root export surface.
+- `tests/` contains behavior-focused Jest coverage, including real transport integrations.
+- `website/` contains the authoritative Astro Starlight consumer documentation.
+- `scripts/` contains deterministic build, packaging, SonarQube, hook, and README lifecycle checks.
+- `.rulesync/` is the only source of coding-agent rules, skills, and hooks. Generated tool-specific
+  configuration must not be edited directly.
+- `docs/development/` contains maintainer procedures for releases and SonarQube.
 
-Keep installation, package behavior, examples, migration guidance, and consumer-facing links consistent in both sources. Contributor setup, quality gates, architecture, and release operations belong only here.
+## Development
 
-Never commit `.README.github.bak` or a staged replacement; recover an interrupted pack with `node scripts/stage-npm-readme.mjs restore`.
+Use the Node.js version pinned in `.nvmrc` and an npm version new enough to honor this repository's
+supply-chain cooldown configuration. The repository hooks verify both versions.
 
-`npm run check:package` verifies the npm-facing marker, required runtime and declaration entrypoints, the root-file allowlist, and restoration of this contributor README.
+```bash
+npm ci
+npm test
+npm run build
+```
+
+Useful focused commands:
+
+```bash
+npm run check:format
+npm run lint
+npm run test:types
+npm test -- --coverage
+npm run check:build
+npm run check:package
+npm run docs:build
+```
+
+Before handing off a merge-ready change, run the complete local gate:
+
+```bash
+npm run release:verify
+```
+
+That command checks formatting, lint, generated RuleSync configuration, hook executability,
+repository scripts, types, coverage, build output, packed package contents, README staging, the
+documentation site, and runtime dependency vulnerabilities.
+
+## Quality and automation
+
+Husky and GitHub Actions enforce the repository contract:
+
+- `pre-commit` scans staged content for secrets and runs lint-staged checks;
+- `commit-msg` enforces Conventional Commits;
+- `pre-push` scans outgoing commits, runs the changed-file SonarQube precheck when credentials are
+  available, verifies generated agent configuration, checks hooks, and runs tests; and
+- pull-request CI runs formatting, lint, types, coverage, build verification, documentation build,
+  dependency audit, and the authoritative SonarQube quality gate.
+
+Do not bypass a failing gate as a routine fix. Diagnose the underlying failure and keep coverage
+thresholds, security checks, and server quality gates intact.
+
+See [docs/development/sonarqube.md](docs/development/sonarqube.md) for local credentials, server
+identity, profile synchronization, CI scans, and manual re-scans.
+
+## Agent configuration
+
+RuleSync generates the Codex, Cursor, Claude, and `AGENTS.md` configuration from `.rulesync/`.
+Change rules under `.rulesync/rules/`, skills under `.rulesync/skills/`, or hooks in
+`.rulesync/hooks.jsonc`, then regenerate and verify:
+
+```bash
+npm run rules:sync
+npm run rules:check
+```
+
+Never hand-edit `.agents/`, `.claude/`, `.codex/`, `.cursor/`, `AGENTS.md`, or `CLAUDE.md`.
+
+## Documentation publishing model
+
+The documentation surfaces have intentionally different audiences:
+
+- `website/src/content/docs/` is the authoritative consumer and API documentation published to
+  GitHub Pages.
+- `README.md` is this concise GitHub repository guide for contributors and maintainers.
+- `npm-readme.md` is a compact npm package entry point that directs consumers to the site.
+
+npm only renders a package tarball's root `README.md`, so `prepack` temporarily protects this file
+as `.README.github.bak` and stages the marked `npm-readme.md` in its place. `postpack` restores the
+repository guide. The package-content checker exercises that lifecycle and verifies the actual
+tarball.
+
+If packing is interrupted, restore the repository guide with:
+
+```bash
+node scripts/stage-npm-readme.mjs restore
+```
+
+Never commit `.README.github.bak` or a staged npm replacement.
 
 ## Releasing
 
-Releases use a protected two-phase flow. Start from a clean, current `main`, run
-`npm run release:verify`, then preview with `npm run release:bump:dry`. Obtain explicit approval of the proposed semver before writing anything.
+Releases use a reviewed, two-phase semver workflow: prepare the version and changelog on a release
+branch, merge the release PR, then create the GitHub Release from `main`. GitHub Actions publishes
+the immutable tag to npm through Trusted Publishing; maintainers do not run `npm publish` locally.
 
-Create `release/x.y.z`, run `npm run release:bump` (or pass an approved `--release-as` override), and open a PR. The bump updates `package.json` and `CHANGELOG.md` and creates the release commit but does not create a tag. Git hooks remain enabled.
-
-After the release PR merges, pull `main` and run `npm run release:publish`. That creates the `v{x}.{y}.{z}` GitHub release on `main`; the release event runs verification and publishes through npm Trusted Publishing. Never run `npm publish` locally. See
-[docs/development/releasing.md](docs/development/releasing.md) for the complete process and recovery guidance.
-
-Publishing to npm uses [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) — there is no long-lived npm token in CI. This requires a one-time setup per maintainer machine/repo:
-
-- a GitHub Environment named `npm`
-- `npm trust github --repository reggieofarrell/http-client --file release.yml --environment npm --allow-publish`
-
-## Quality gates
-
-Pull requests run format, lint (including locally implemented SonarJS rules on `src/`), types,
-Jest with `coverageThreshold`, build, and a runtime-dependency audit. Pushes to `main` also
-upload coverage to SonarQube at <https://sonar.casadega.dev> (new-code quality gate). PR
-decoration is deferred until that `main` baseline exists; see [docs/development/sonarqube.md](docs/development/sonarqube.md).
-
-Local Husky hooks run a fail-closed secret scan on commit and push. Coding-agent post-edit hooks run a type-independent SonarJS subset on production `src/` files. The changed-file Sonar precheck (`npm run sonar:precheck`) skips loudly when Scanner or credentials are missing; CI
-still enforces the full scan after the project is provisioned.
+Follow [docs/development/releasing.md](docs/development/releasing.md) and the generated `cut-release`
+skill for the full preview, approval, verification, and recovery procedure.
 
 ## License
 
-0BSD
+[0BSD](license.txt)
