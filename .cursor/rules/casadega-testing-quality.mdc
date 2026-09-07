@@ -1,0 +1,24 @@
+---
+description: Require behavior-focused deterministic tests, strong assertions, correct boundary doubles, and protected coverage ratchets
+globs: **/*.{test,spec}.{js,mjs,ts,tsx}
+---
+
+# Testing quality
+
+- Test observable behavior, public contracts, failure modes, boundary values, and cleanup. A test
+  that merely executes code, snapshots implementation detail, or calls a private helper cannot prove
+  the production path is wired correctly.
+- Keep the unit real and replace only external or lower-layer boundaries. Mock factories expose
+  typed spies or preserve real exports; never reimplement production behavior inside a mock.
+- Prefer exact public values and structural assertions. Prefix, substring, and negated-substring
+  assertions can remain green for truncated, malformed, or partially leaked output.
+- Isolate the behavior under examination by holding unrelated result-affecting inputs constant. Use
+  deterministic clocks, randomness, identifiers, factories, and per-test state.
+- Use a real local boundary when the mock framework cannot exercise the integration being claimed.
+  Do not infer retry, transport, database, or serialization behavior from an incompatible double.
+- Restore globals, timers, spies, subscriptions, listeners, servers, and temporary resources in the
+  test that owns them. Do not use arbitrary sleeps, production services, or order-dependent state.
+- Do not delete, skip, weaken, or broadly mock meaningful tests merely to make the suite pass.
+  Resolve ambiguous competing contracts with the user.
+- Preserve coverage ratchets and follow the shared casadega-test-falsification rule for regression,
+  guard, rejection, and behavior-preserving-refactor tests.

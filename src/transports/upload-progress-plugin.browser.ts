@@ -1,6 +1,6 @@
 import type { XiorPlugin, XiorRequestConfig } from 'xior';
-import { shouldHandleProgressRequest } from './shared.js';
 import { performBrowserUploadRequest } from './browser-transport.js';
+import { shouldHandleProgressRequest } from './shared.js';
 
 export type { UploadProgressEvent } from './shared.js';
 

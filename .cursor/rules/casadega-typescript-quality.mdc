@@ -1,0 +1,26 @@
+---
+description: Enforce type-safe TypeScript boundaries, explicit public contracts, deliberate absence, and safe promise ownership
+globs: **/*.{ts,tsx}
+---
+
+# TypeScript quality
+
+- Treat external data as `unknown` and validate or narrow it at the runtime boundary. Do not use
+  `any`, assertions, or unreachable branches to bypass a modeling decision.
+- Do not declare TypeScript enums. Use an `as const` runtime object and derive its value union, or
+  use the runtime schema primitive appropriate to the validation boundary.
+- Prefer discriminated unions, exhaustive switches, type guards, control-flow narrowing, and
+  `satisfies`. Non-null and other assertions remain exceptional, locally proven escape hatches.
+- Use `@ts-expect-error` only for an intentional negative type test or documented upstream typing
+  limitation, with the expected failure explained on the same line. Never use `@ts-ignore`.
+- Give exported and cross-layer boundaries explicit parameter and return types. Prefer inference for
+  obvious locals and callbacks where it preserves useful precision.
+- Keep a type with the module that owns its meaning. Move it to a shared package only after multiple
+  runtime surfaces genuinely consume the same safe contract.
+- Model omission and `null` deliberately. Default with `??` when valid falsy values must survive.
+- Separate pure transformation and decision logic from I/O, logging, database, network, and state
+  mutation adapters.
+- Every detached promise needs a rejection owner. `void promise` suppresses a diagnostic but does
+  not handle failure.
+- Fix dependency cycles, invalid package boundaries, unused exports, and type-aware lint findings at
+  their source instead of weakening the rule or adding broad suppression.

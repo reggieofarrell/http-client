@@ -17,6 +17,18 @@ concurrency:
   # so cancelling one cannot interrupt an in-flight Sonar baseline upload.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Root dependency installation reads Casadega's private development tooling.
+# This personal repository therefore supplies a read-only package token in
+# addition to the ordinary source-code permission.
+permissions:
+  contents: read
+  packages: read
+
+# Keep the CI-only GitHub Packages auth placeholder separate from developers'
+# user-level npm credentials.
+env:
+  NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/.github/npmrc
+
 jobs:
   lint:
     name: Lint
@@ -31,6 +43,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Format check
         # eslint extends eslint-config-prettier (formatting rules disabled), so `npm run lint`
@@ -38,9 +52,16 @@ jobs:
         run: npm run check:format
       - name: Lint
         run: npm run lint
-      - name: SonarJS rule-sync helpers
-        # Pure parsing tests; no Scanner, CLI, or server credentials required.
-        run: npm run test:sonar-rules
+      - name: Restore locked shared RuleSync policy
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
+        run: npm run rules:install
+      - name: Validate Sonar baseline
+        # Shared tooling validates the committed server identity and generated
+        # local profile without contacting SonarQube.
+        run: npm run sonar:check
+      - name: Validate package baseline
+        run: npm run packages:check
       - name: Rules in sync (rulesync)
         # Fails if the generated agent-instruction files drift from the .rulesync/ source.
         run: npm run rules:check
@@ -64,6 +85,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Type-check
         run: npm run test:types
@@ -81,6 +104,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Run tests with coverage
         # jest.config.js coverageThreshold enforces the gate; a coverage regression fails this step.
@@ -106,6 +131,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install root dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Install docs site dependencies
         run: npm --prefix website ci
@@ -132,6 +159,7 @@ jobs:
     # here automatically instead of requiring a repository-by-repository SHA update.
     uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@main
     secrets:
+      NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
       coverage-artifacts-json: '[{"name":"coverage","path":"coverage"}]'
@@ -158,6 +186,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Build
         run: npm run build
@@ -177,6 +207,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       # --omit=dev keeps this meaningful: http-client ships exactly one runtime dependency
       # (xior), so this stays a real signal instead of devDependency noise.

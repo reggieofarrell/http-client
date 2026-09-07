@@ -37,3 +37,7 @@ yarn-error.log*
 /website/dist
 /website/.astro
 /website/node_modules
+
+# RuleSync verifies shared source files through rulesync-npm.lock.json. The
+# installed curated copies are disposable inputs used only during generation.
+.rulesync/**/.curated/

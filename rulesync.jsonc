@@ -27,4 +27,44 @@
   // `.rulesync/skills/*/SKILL.md`.
   "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
   "features": ["rules", "skills", "hooks"],
+
+  // Shared Casadega policy and workflows travel with the exact executable
+  // tooling release. Local http-client sources retain ownership of package-
+  // specific architecture, testing details, and agent-hook configuration.
+  "sources": [
+    {
+      "source": "@casadega-development/ts-repo-tooling",
+      "transport": "npm",
+      "registry": "https://npm.pkg.github.com",
+      "ref": "0.7.0",
+      "tokenEnv": "NODE_AUTH_TOKEN",
+      "rules": [
+        "casadega-code-documentation",
+        "casadega-coding-fundamentals",
+        "casadega-dead-code-policy",
+        "casadega-public-api-documentation",
+        "casadega-quality-gates",
+        "casadega-rulesync-managed-config",
+        "casadega-sonarqube-safety",
+        "casadega-source-verified-working-mode",
+        "casadega-test-falsification",
+        "casadega-testing-documentation-sync",
+        "casadega-testing-quality",
+        "casadega-typescript-quality",
+      ],
+      "skills": [
+        "casadega-dependency-upgrade",
+        "casadega-fix-sonarqube-issues",
+        "casadega-implementation-planning",
+        "casadega-implementation-review",
+        "casadega-maintain-public-api",
+        "casadega-plan-execution",
+        "casadega-release-npm-library",
+        "casadega-review-rules-compliance",
+        "casadega-rulesync-upgrade-review",
+        "casadega-sync-dual-readmes",
+        "casadega-unit-testing",
+      ],
+    },
+  ],
 }

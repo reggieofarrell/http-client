@@ -1,7 +1,6 @@
 import xior from 'xior';
 import type { XiorError, XiorInstance, XiorPlugin, XiorRequestConfig, XiorResponse } from 'xior';
 import errorRetryPlugin from 'xior/plugins/error-retry';
-import type { UploadProgressEvent } from './upload-progress.js';
 import {
   NetworkError,
   TimeoutError,
@@ -18,6 +17,7 @@ import {
   classifyErrorForRetry,
   type HttpErrorOptions,
 } from './errors.js';
+import type { UploadProgressEvent } from './upload-progress.js';
 
 export enum RequestType {
   GET = 'GET',
@@ -227,7 +227,10 @@ const HTTP_DATE_PATTERNS = {
   ),
 } as const;
 
-/** Clamps a parsed Retry-After delay (ms) into `[0, MAX_RETRY_AFTER_MS]`. */
+/**
+ * Clamps a parsed Retry-After delay (ms) into `[0, MAX_RETRY_AFTER_MS]`.
+ * @param delayMs
+ */
 function clampRetryDelay(delayMs: number): number {
   return Math.min(Math.max(delayMs, 0), MAX_RETRY_AFTER_MS);
 }
@@ -337,7 +340,7 @@ export class HttpClient {
     delete config.retryConfig;
     delete config.idempotencyConfig;
 
-    config = {
+    const resolvedConfig: HttpClientOptions = {
       xiorConfig: {},
       retryConfig,
       debug: false,
@@ -346,19 +349,19 @@ export class HttpClient {
       ...config,
     };
 
-    this.xiorConfig = config.xiorConfig;
-    this.baseURL = config.baseURL;
-    this.debug = config.debug;
-    this.debugLevel = config.debugLevel;
-    this.name = config.name;
-    this.retryConfig = config.retryConfig!;
+    this.xiorConfig = resolvedConfig.xiorConfig;
+    this.baseURL = resolvedConfig.baseURL;
+    this.debug = resolvedConfig.debug;
+    this.debugLevel = resolvedConfig.debugLevel;
+    this.name = resolvedConfig.name;
+    this.retryConfig = retryConfig;
     this.idempotencyConfig = idempotencyConfig;
-    this.errorMessageExtractor = config.errorMessageExtractor || 'data.message';
-    this.hasUploadProgressPlugin = !!config.uploadProgressPlugin;
+    this.errorMessageExtractor = resolvedConfig.errorMessageExtractor || 'data.message';
+    this.hasUploadProgressPlugin = !!resolvedConfig.uploadProgressPlugin;
 
     const client = xior.create({
-      ...config.xiorConfig,
-      baseURL: config.baseURL,
+      ...resolvedConfig.xiorConfig,
+      baseURL: resolvedConfig.baseURL,
     });
 
     // Only registered if the consumer explicitly opted in (imported the /upload-progress
@@ -368,8 +371,8 @@ export class HttpClient {
     // scratch). See @reggieofarrell/http-client/upload-progress for why both the conditionality
     // (tree-shaking - nothing here imports that subpath) and the ordering (retry composition)
     // matter.
-    if (config.uploadProgressPlugin) {
-      client.plugins.use(config.uploadProgressPlugin);
+    if (resolvedConfig.uploadProgressPlugin) {
+      client.plugins.use(resolvedConfig.uploadProgressPlugin);
     }
 
     // Always registered, even when retryConfig.retries is 0 (the default) - xior's error-retry
@@ -406,6 +409,7 @@ export class HttpClient {
    * `retryConfig`), it is used verbatim and fully bypasses the built-in backoff/jitter
    * calculation. Otherwise the delay is computed from the effective backoff, delayFactor,
    * and backoffJitter (per-request overrides take precedence over instance-level config).
+   * @param overrides
    */
   private buildRetryInterval(overrides?: HttpClientRetryConfig) {
     return (count: number, cfg: XiorRequestConfig, error: XiorError): number => {
@@ -414,8 +418,10 @@ export class HttpClient {
         return retryDelay(count, error, cfg);
       }
 
-      const backoff = overrides?.backoff ?? this.retryConfig.backoff!;
-      const delayFactor = overrides?.delayFactor ?? this.retryConfig.delayFactor!;
+      // The constructor merges these two defaults into every instance-level retry config, while
+      // a request-level value takes precedence whenever one is supplied.
+      const backoff = overrides?.backoff ?? this.retryConfig.backoff ?? 'exponential';
+      const delayFactor = overrides?.delayFactor ?? this.retryConfig.delayFactor ?? 500;
       const backoffJitter = overrides?.backoffJitter ?? this.retryConfig.backoffJitter ?? 'none';
 
       return this.getRetryDelay(count, error, backoff, delayFactor, backoffJitter);
@@ -592,7 +598,9 @@ export class HttpClient {
         );
       }
 
-      const value = pathParams[paramName];
+      // The membership check above proves the dynamic property exists, although TypeScript
+      // cannot carry that fact through a `Record` lookup with `noUncheckedIndexedAccess`.
+      const value = pathParams[paramName] as string | number;
       const stringValue = typeof value === 'number' ? value.toString() : value;
 
       // encodeURIComponent encodes everything except: A-Z a-z 0-9 - _ . ! ~ * ' ( )
@@ -641,10 +649,11 @@ export class HttpClient {
     // Idempotency-Key header (idempotencyConfig was deleted, so call 2 can't tell it should
     // generate a fresh one - but the header from call 1 is still sitting on the shared object).
     // Cloning isolates every call's derived state from the caller's own object.
-    config = { ...config };
+    const requestConfig = { ...config };
+    let resolvedUrl = url;
     let req: XiorResponse<T> | undefined;
 
-    if (config.realUploadProgress && !this.hasUploadProgressPlugin) {
+    if (requestConfig.realUploadProgress && !this.hasUploadProgressPlugin) {
       throw new Error(
         'realUploadProgress requires passing uploadProgressPlugin: createUploadProgressPlugin() ' +
           "(from '@reggieofarrell/http-client/upload-progress') to the HttpClient constructor."
@@ -653,39 +662,39 @@ export class HttpClient {
 
     // Path params, per-request retry, and idempotency headers are applied before
     // `beforeRequest` so subclass hooks see the fully resolved request.
-    url = this.applyPathParams(url, config);
-    this.applyPerRequestRetryConfig(config);
-    this.applyIdempotencyHeaders(requestType, config);
+    resolvedUrl = this.applyPathParams(resolvedUrl, requestConfig);
+    this.applyPerRequestRetryConfig(requestConfig);
+    this.applyIdempotencyHeaders(requestType, requestConfig);
 
     // Call beforeRequest middleware hook to modify request parameters and perform actions
-    await this.beforeRequest(requestType, url, data, config);
+    await this.beforeRequest(requestType, resolvedUrl, data, requestConfig);
 
     try {
       switch (requestType) {
         case RequestType.GET:
-          req = await this.client.get<T>(url, config);
+          req = await this.client.get<T>(resolvedUrl, requestConfig);
           break;
         case RequestType.POST:
-          req = await this.client.post<T>(url, data, config);
+          req = await this.client.post<T>(resolvedUrl, data, requestConfig);
           break;
         case RequestType.PUT:
-          req = await this.client.put<T>(url, data, config);
+          req = await this.client.put<T>(resolvedUrl, data, requestConfig);
           break;
         case RequestType.PATCH:
-          req = await this.client.patch<T>(url, data, config);
+          req = await this.client.patch<T>(resolvedUrl, data, requestConfig);
           break;
         case RequestType.DELETE:
-          req = await this.client.delete<T>(url, config);
+          req = await this.client.delete<T>(resolvedUrl, requestConfig);
           break;
         case RequestType.HEAD:
-          req = await this.client.head<T>(url, config);
+          req = await this.client.head<T>(resolvedUrl, requestConfig);
           break;
         case RequestType.OPTIONS:
-          req = await this.client.options<T>(url, config);
+          req = await this.client.options<T>(resolvedUrl, requestConfig);
           break;
       }
     } catch (err) {
-      this.errorHandler(err, requestType, url);
+      this.errorHandler(err, requestType, resolvedUrl);
     }
 
     if (!req) {
@@ -697,7 +706,7 @@ export class HttpClient {
       // "Cannot read properties of undefined" with no indication of the actual cause.
       throw new Error(
         `[${this.name || 'HttpClient'}] errorHandler must throw - it returned normally instead ` +
-          `of throwing for a failed ${requestType} ${url} request. Override errorHandler and ` +
+          `of throwing for a failed ${requestType} ${resolvedUrl} request. Override errorHandler and ` +
           `either call "throw this.processError(error, reqType, url)" or throw a custom error ` +
           'built from it - see the README\'s "Error Handling" section.'
       );
@@ -706,7 +715,7 @@ export class HttpClient {
     // Call afterResponse middleware hook for successful responses.
     // After the `if (!req)` guard above, TypeScript has already narrowed `req`
     // to defined - non-null assertions here are redundant (S4325).
-    await this.afterResponse(requestType, url, req, req.data);
+    await this.afterResponse(requestType, resolvedUrl, req, req.data);
 
     return { request: req, data: req.data };
   }
@@ -773,9 +782,13 @@ export class HttpClient {
       // To reuse the same key across manual retries, pass `idempotencyKey` explicitly.
       // Automatic retries already reuse this request/header internally.
       const idempotencyKey = this.resolveIdempotencyKey(config, mergedIdempotencyConfig);
+      // The constructor-level defaults always provide a header name before request overrides
+      // are merged, so the effective configuration is normalized even though the public input
+      // type correctly keeps this option optional.
+      const headerName = mergedIdempotencyConfig.headerName as string;
       config.headers = {
         ...config.headers,
-        [mergedIdempotencyConfig.headerName!]: idempotencyKey,
+        [headerName]: idempotencyKey,
       };
     }
 
@@ -914,10 +927,10 @@ export class HttpClient {
    * `catch (err) { err instanceof HttpError }` will always be `false` for a `beforeRequest`
    * failure - that's how you can tell it apart from a real request failure.
    *
-   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
-   * @param url - The request URL
-   * @param data - The request data (mutable)
-   * @param config - The request config (mutable)
+   * @param _requestType - The request type (GET, POST, PUT, PATCH, DELETE).
+   * @param _url - The request URL.
+   * @param _data - The mutable request body.
+   * @param _config - The mutable request configuration.
    */
   protected async beforeRequest(
     _requestType: RequestType,
@@ -940,10 +953,10 @@ export class HttpClient {
    * tells you the request itself succeeded but your own post-processing failed - distinct from a
    * request failure, which always throws one of `HttpError`/`NetworkError`/etc.
    *
-   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
-   * @param url - The request URL
-   * @param response - The xior response object (mutable)
-   * @param data - The response data (mutable reference to response.data)
+   * @param _requestType - The request type (GET, POST, PUT, PATCH, DELETE).
+   * @param _url - The request URL.
+   * @param _response - The mutable xior response object.
+   * @param _data - The mutable reference to `response.data`.
    */
   protected async afterResponse(
     _requestType: RequestType,
@@ -1118,9 +1131,9 @@ export class HttpClient {
    * default implementation - that override already owns the full throw contract. Call
    * `this.onError(...)` yourself, or `await super.errorHandler(...)`, if you want both.
    *
-   * @param requestType - The request type (GET, POST, PUT, PATCH, DELETE)
-   * @param url - The request URL
-   * @param error - The fully classified error `errorHandler` is about to throw
+   * @param _requestType - The request type (GET, POST, PUT, PATCH, DELETE).
+   * @param _url - The request URL.
+   * @param _error - The fully classified error `errorHandler` is about to throw.
    */
   protected async onError(
     _requestType: RequestType,

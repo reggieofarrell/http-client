@@ -10,14 +10,16 @@ problem, and rerun it. A deliberate emergency bypass is an accountable human
 decision, not a routine agent shortcut.
 
 Run `npm run release:verify` before handing off a merge-ready change. It is the canonical complete
-gate: formatting, lint, RuleSync, hook permissions, repository-script tests, SonarJS helper tests,
-types, coverage, build output, package contents including dual-README staging, and runtime audit.
+gate: formatting, lint, shared Sonar and package baselines, RuleSync, hook permissions,
+repository-script tests, types, coverage, build output, package contents including dual-README
+staging, documentation, and runtime audit.
 
 Everyday pre-push still runs the lighter `rules:check`, `check:hooks`, and `npm test`.
 
 The package release flow is preview-first and PR-based. Never restore the old `--no-verify` release
 commands, create a release tag on the branch, push a generated release commit directly to `main`, or
-publish locally. Follow `docs/development/releasing.md` and the `cut-release` skill.
+publish locally. Follow `docs/development/releasing.md` and the shared
+`casadega-release-npm-library` skill.
 
 - The Jest `coverageThreshold` in `jest.config.js` is a ratchet. Never lower it
   merely to make a change pass; add meaningful coverage or document an
@@ -47,9 +49,9 @@ publish locally. Follow `docs/development/releasing.md` and the `cut-release` sk
   inherited `SONAR_TOKEN`; use the environment only as a fallback. On other
   platforms, explicitly treat `SONAR_TOKEN` as the only supported local source.
   Never print tokens or place them in command arguments or shell history.
-- Before trusting `sonar api`, `sonar list issues`, or another CLI query with no
-  host option, verify that `sonar auth status` names the committed host. An
-  empty response is not evidence of a clean project until that check succeeds.
+- Use the shared `casadega-repo-tooling sonar ...` commands for repository analysis. They query the
+  committed server directly and cannot silently follow the Sonar CLI's active connection to a
+  different host.
 - Preserve the pre-commit, pre-push, and CI gates when changing quality tooling.
   Do not narrow their coverage or downgrade blocking checks to warnings.
 

@@ -156,7 +156,7 @@ describe('HttpClient real upload progress (browser/XHR transport) against a real
       // realUploadProgress is wired up and does get invoked...
       expect(events.length).toBeGreaterThan(0);
       for (let i = 1; i < events.length; i++) {
-        expect(events[i].loaded).toBeGreaterThanOrEqual(events[i - 1].loaded);
+        expect(events[i]?.loaded).toBeGreaterThanOrEqual(events[i - 1]?.loaded ?? -1);
       }
 
       // ...but this jsdom version's own upload-progress simulation is too crude to assert
