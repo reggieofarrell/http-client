@@ -1,0 +1,68 @@
+name: Deploy docs
+
+# Builds the Starlight docs site and publishes it to GitHub Pages.
+# Includes:
+# 1) Release publish (the docs should match released package state)
+# 2) Manual dispatch with explicit ref for previews / hotfix docs snapshots
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git tag or commit SHA to build and deploy'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
+    steps:
+      - name: Resolve deploy ref
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          MANUAL_REF: ${{ inputs.ref }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            REF="$MANUAL_REF"
+          else
+            REF="$RELEASE_TAG"
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::Deploy ref is empty (event=$EVENT_NAME)."
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout repository at deploy ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+      - name: Build docs site
+        uses: withastro/action@v6
+        with:
+          path: website
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ needs.build.result == 'success' }}
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
