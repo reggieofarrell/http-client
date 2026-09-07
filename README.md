@@ -101,9 +101,9 @@ Before handing off a merge-ready change, run the complete local gate:
 npm run release:verify
 ```
 
-That command checks formatting, lint, generated RuleSync configuration, hook executability,
-repository scripts, types, coverage, build output, packed package contents, README staging, the
-documentation site, and runtime dependency vulnerabilities.
+That command checks formatting, lint, shared Sonar and package baselines, generated RuleSync
+configuration, hook executability, repository scripts, types, coverage, build output, packed
+package contents, README staging, the documentation site, and runtime dependency vulnerabilities.
 
 ## Quality and automation
 
@@ -163,8 +163,13 @@ Releases use a reviewed, two-phase semver workflow: prepare the version and chan
 branch, merge the release PR, then create the GitHub Release from `main`. GitHub Actions publishes
 the immutable tag to npm through Trusted Publishing; maintainers do not run `npm publish` locally.
 
-Follow [docs/development/releasing.md](docs/development/releasing.md) and the generated `cut-release`
-skill for the full preview, approval, verification, and recovery procedure.
+Follow [docs/development/releasing.md](docs/development/releasing.md) and the generated
+`casadega-release-npm-library` skill for the full preview, approval, verification, and recovery
+procedure.
+
+The development toolchain consumes a private GitHub Package. See
+[docs/development/private-packages.md](docs/development/private-packages.md) for local npm and
+macOS Keychain setup plus the required Actions secret.
 
 ## License
 

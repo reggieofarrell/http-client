@@ -91,26 +91,28 @@ it that way (see "Working mode" below).
   points at an executable file — the executable bit is invisible to a normal content diff, so
   nothing else catches it losing that bit. `npm run test:hook-permissions` unit-tests the checker
   itself. See `scripts/check-hook-permissions.mjs`.
-- Full local gate: `npm run release:verify`. It includes package-content and dual-README lifecycle
-  checks in addition to formatting, lint, RuleSync, hooks, types, coverage, build, and audit.
+- Full local gate: `npm run release:verify`. It includes shared Sonar and package baselines plus
+  package-content and dual-README lifecycle checks in addition to formatting, lint, RuleSync,
+  hooks, types, coverage, build, and audit.
 
 ## Tooling
 
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook) — this drives
   `CHANGELOG.md` generation via `commit-and-tag-version` (config: `.versionrc.json`).
-- **Agent config:** authored once under `.rulesync/` (rules, skills, and coding-agent hooks;
-  `cut-release`, `write-tests`, and `fix-sonarqube-issues`) and generated to Cursor, Claude Code,
-  Codex CLI, and the `AGENTS.md` standard via `npm run rules:sync`. Skills (not commands) so
-  Codex CLI actually gets them — it only supports rulesync's "commands" feature in global mode,
-  not per-project. Never hand-edit `.cursor/`, `.claude/`, `.agents/`, `.codex/`, `AGENTS.md`, or
-  `CLAUDE.md` — `npm run rules:check` (pre-push + CI) fails on drift.
+- **Agent config:** project-specific rules, the `write-tests` skill, and coding-agent hooks are
+  authored under `.rulesync/`; broadly reusable rules and skills come from the exact installed
+  `@casadega-development/ts-repo-tooling` release. RuleSync generates both sources to Cursor,
+  Claude Code, Codex CLI, and the `AGENTS.md` standard. Skills (not commands) provide the one
+  workflow format all three agents understand. Never hand-edit `.cursor/`, `.claude/`, `.agents/`,
+  `.codex/`, `AGENTS.md`, or `CLAUDE.md` — `npm run rules:check` fails on drift.
 - **SonarQube:** layered gate (local SonarJS ESLint, agent post-edit hook, fail-closed secret
   scans, skippable changed-file precheck, CI scan via `Casadega-Development/action-workflows`).
   The server gate is new-code-only. Do not put tokens in source, env files, command arguments, or
   logs.
-- **Releasing:** follow `docs/development/releasing.md` and the `cut-release` skill. Preview with
-  `release:bump:dry`, land `release:bump` through a release PR without a tag, then create the GitHub
-  Release from merged `main` with `release:publish`; the release event triggers OIDC npm publication.
+- **Releasing:** follow `docs/development/releasing.md` and the shared
+  `casadega-release-npm-library` skill. Preview with `release:bump:dry`, land `release:bump` through
+  a release PR without a tag, then create the GitHub Release from merged `main` with
+  `release:publish`; the release event triggers OIDC npm publication.
 - **Documentation surfaces:** the Starlight site under `website/` is the authoritative consumer and
   API documentation; GitHub shows the contributor-focused `README.md`; npm receives the compact
   `npm-readme.md` entry point temporarily staged as the tarball root README. Keep each source focused
@@ -132,14 +134,16 @@ problem, and rerun it. A deliberate emergency bypass is an accountable human
 decision, not a routine agent shortcut.
 
 Run `npm run release:verify` before handing off a merge-ready change. It is the canonical complete
-gate: formatting, lint, RuleSync, hook permissions, repository-script tests, SonarJS helper tests,
-types, coverage, build output, package contents including dual-README staging, and runtime audit.
+gate: formatting, lint, shared Sonar and package baselines, RuleSync, hook permissions,
+repository-script tests, types, coverage, build output, package contents including dual-README
+staging, documentation, and runtime audit.
 
 Everyday pre-push still runs the lighter `rules:check`, `check:hooks`, and `npm test`.
 
 The package release flow is preview-first and PR-based. Never restore the old `--no-verify` release
 commands, create a release tag on the branch, push a generated release commit directly to `main`, or
-publish locally. Follow `docs/development/releasing.md` and the `cut-release` skill.
+publish locally. Follow `docs/development/releasing.md` and the shared
+`casadega-release-npm-library` skill.
 
 - The Jest `coverageThreshold` in `jest.config.js` is a ratchet. Never lower it
   merely to make a change pass; add meaningful coverage or document an
@@ -169,9 +173,9 @@ publish locally. Follow `docs/development/releasing.md` and the `cut-release` sk
   inherited `SONAR_TOKEN`; use the environment only as a fallback. On other
   platforms, explicitly treat `SONAR_TOKEN` as the only supported local source.
   Never print tokens or place them in command arguments or shell history.
-- Before trusting `sonar api`, `sonar list issues`, or another CLI query with no
-  host option, verify that `sonar auth status` names the committed host. An
-  empty response is not evidence of a clean project until that check succeeds.
+- Use the shared `casadega-repo-tooling sonar ...` commands for repository analysis. They query the
+  committed server directly and cannot silently follow the Sonar CLI's active connection to a
+  different host.
 - Preserve the pre-commit, pre-push, and CI gates when changing quality tooling.
   Do not narrow their coverage or downgrade blocking checks to warnings.
 
@@ -194,3 +198,235 @@ that same directory) — never a tool-specific skills directory like `.cursor/sk
 
 For all frontmatter fields and options, see the rulesync docs:
 <https://github.com/dyoshikawa/rulesync> (the "Each File Format" and configuration sections).
+
+# Exhaustive code documentation
+
+Every authored function needs JSDoc, including non-exported functions, methods, components, hooks,
+factories, and named function-valued constants. Anonymous callbacks may rely on the documented
+enclosing operation only when their purpose and lifecycle are immediately obvious; extract and
+document callbacks that own domain behavior or non-obvious cleanup.
+
+Document interfaces, type aliases, classes, constructors, properties, accessors, object-type
+members, exported constants, schemas, configuration objects, and discriminated-union members.
+Explain purpose, meaning, invariants, ownership, lifecycle, mutation, I/O, cleanup, security
+constraints, and material thrown errors. Do not translate an identifier or TypeScript annotation
+into redundant prose.
+
+Use inline comments for reasoning, compatibility constraints, tradeoffs, and surprising control
+flow. Do not narrate straightforward syntax. When touching a logical area, bring the declarations in
+that area up to the same documentation standard.
+
+# Coding fundamentals
+
+- Use descriptive domain names. Values and functions use camelCase; types and classes use
+  PascalCase; booleans read as predicates; `UPPER_SNAKE_CASE` is reserved for genuine protocol,
+  environment, or module constants.
+- Prefer `const`, guard clauses, and functions with one describable responsibility. Let the
+  repository's formatter and linter own mechanical style.
+- Use ESM in authored code. Preserve the repository's established import-specifier convention rather
+  than forcing browser, bundler, and Node workspaces into one incompatible style.
+- Use `async`/`await` for sequential orchestration and promise combinators for deliberate
+  concurrency. Every asynchronous operation needs explicit failure and cancellation ownership.
+- Keep a helper beside its narrowest real owner. Promote it only after real reuse establishes a more
+  general owner; do not create speculative utilities or barrels.
+- Catch only to recover, add material context, translate at the owning boundary, observe once with
+  actionable context, or guarantee cleanup. Preserve the original failure as `cause` when mapping.
+  Do not log and rethrow at every layer.
+- Declare dependencies in the package that imports them. Diagnose peer and resolution conflicts; do
+  not use force flags, relaxed peers, or unrelated overrides without explicit policy authority.
+- Prefer named exports unless a documented framework or generated-code convention requires a default
+  export.
+
+# Dead-code and dependency policy
+
+- Remove dead code, connect a genuinely missing entrypoint, or declare a dependency in the package
+  that consumes it. Do not silence repository-wide analysis merely to retain an orphan.
+- Mark an otherwise unreferenced export as public only when it is a deliberate supported extension
+  contract, and document that intent beside the export.
+- Do not retain abandoned implementations, duplicate APIs, internal helpers, speculative future
+  work, or broad barrels under a public-entrypoint exception.
+- Prefer narrow intentional exports and precise tool configuration. Any ignore entry must identify a
+  concrete tool limitation or runtime-discovered entrypoint and stay scoped to that case.
+
+# Published API and documentation synchronization
+
+When a change alters an exported name, signature, option, default, error, return contract, package
+entrypoint, or observable behavior, update its consumer documentation and examples in the same
+change.
+
+- Inspect the package export surface deliberately. An export is a compatibility commitment, not an
+  automatic mirror of every internal implementation.
+- Update the relevant README, published documentation site, API reference, and runnable or
+  type-checked examples. Verify links and code snippets with the repository's actual checks.
+- Record breaking behavior and changed defaults in the repository's durable migration surface. Use
+  the configured Conventional Commit breaking-change syntax so release tooling calculates and
+  presents the change correctly.
+- Do not hand-edit a generated changelog unless the release workflow explicitly owns a documented
+  post-generation correction.
+- Internal refactors that preserve every public contract do not require artificial documentation
+  churn.
+
+# Repository quality gates
+
+- Use concise Conventional Commit messages when the repository requests a commit. Respect the
+  configured commitlint policy and protected-branch workflow.
+- Treat Husky hooks, lint-staged checks, CI jobs, and the repository's canonical complete-check
+  command as contracts. Do not bypass, weaken, or downgrade them merely to make a change pass.
+- Diagnose the underlying defect when a gate fails. A human may authorize an emergency bypass, but
+  an agent must not make that policy decision implicitly.
+- Coverage thresholds are ratchets. Add meaningful tests or document an explicitly reviewed
+  recalibration; never lower a threshold as a convenience.
+- Secret and security scans fail closed. A finding, malformed result, or scanner failure blocks.
+  Only an explicitly modeled unavailable-prerequisite status may use a documented soft-skip path.
+- Hooks may skip redundant non-security work only through a tested, fail-closed proof that the
+  outgoing change was already verified. Ambiguous history, new commits, hand-resolved conflicts, and
+  malformed input run the normal gates.
+- Directly invoked hook files must retain executable mode. Keep the repository's hook-permission
+  canary and its tests when changing agent or Git-hook configuration.
+- Run and report the repository's current complete gate before handoff when the change is intended
+  to be merge-ready. Read the command from current configuration rather than memorizing it here.
+
+# RuleSync-managed agent configuration
+
+- Treat `.rulesync/` as the repository source of truth for project rules, skills, and hooks. Treat
+  generated `.agents/`, `.claude/`, `.codex/`, `.cursor/`, `AGENTS.md`, and `CLAUDE.md` artifacts as
+  build output rather than authored policy.
+- Model reusable agent workflows as skills, not authored RuleSync commands. Skills provide one
+  cross-tool source for Codex, Cursor, and Claude; deterministic execution belongs in repository
+  scripts or the `casadega-repo-tooling` CLI.
+- Shared policy belongs in its owning package. Release it there, update the consuming repository's
+  exact package version and RuleSync source revision together, install with the frozen lock, and
+  regenerate tool-native output.
+- Never edit an installed `.curated/` source. A repository-specific specialization belongs in an
+  authored local source with a distinct purpose, or an intentional same-name override when the
+  repository must replace shared policy.
+- Run the repository's RuleSync install, generation, and drift checks after source changes. Commit
+  authored sources, source locks, package locks, and generated output together.
+- Keep machine-local preferences in ignored tool-supported overrides. They are not project policy.
+
+# SonarQube safety
+
+- Treat `sonar.host.url` and `sonar.projectKey` in the committed `sonar-project.properties` as the
+  repository's sole SonarQube authority. Do not duplicate them in package scripts, workflow
+  variables, or repository-tooling config.
+- Invoke `casadega-repo-tooling sonar precheck` for local changed-file analysis. Do not copy or fork
+  its host, credential, API, scanner, temporary-branch, or exit-status implementation into the
+  consuming repository.
+- Retrieve existing pull-request or branch issues and security hotspots with
+  `casadega-repo-tooling sonar findings`. Never run bare `sonar list issues` or `sonar api` queries:
+  they follow SonarQube CLI's one active connection, and the wrong server can return an empty result
+  that looks falsely clean. Never transition an issue or hotspot without explicit user authority.
+- Require `casadega-repo-tooling sonar check` in the repository's complete local quality command so
+  committed properties and generated rule-profile provenance are validated without network access.
+- Generate the committed local SonarJS profile through `casadega-repo-tooling sonar rules sync` and
+  verify it with `--check` where profile drift must block. Do not maintain repository-local profile
+  loaders, API clients, or synchronization scripts. Use `--bootstrap` only before the intended
+  server is reachable, then replace that bootstrap provenance with a normal authenticated sync.
+- Never allow inherited `SONAR_HOST_URL` to override a committed host. Never pass a token on scanner
+  command-line arguments, log it, persist it in repository files, or include it in an error.
+- On macOS, store durable tokens under the endpoint-scoped service selected by the tooling, such as
+  `sonarqube-cli-sonar.example.com`, with the URL authority as the account. Do not put durable
+  multi-server credentials in the plain `sonarqube-cli` service because the CLI replaces that item
+  when its active server changes. `SONAR_TOKEN` and `SONAR_USER_TOKEN` are portable fallbacks.
+- Preserve exit status `0` for success, `1` for blocking failures, and `2` only for unavailable
+  external prerequisites. A quality failure, invalid token, malformed configuration, or scanner
+  failure must never be converted into a skip.
+- Pin TypeScript Repo Tooling and shared RuleSync inputs to reviewed versions or lock revisions.
+  Adopt changes explicitly instead of consuming a floating branch in protected quality gates.
+
+# Complete and source-verified work
+
+- Before changing a contract, search for every producer, consumer, sibling variant, generated copy,
+  test, document, configuration surface, workflow, and infrastructure reference that may depend on
+  it. A green implementation is still incomplete when an affected surface was never considered.
+- Verify claims against current source, configuration, command output, or an authoritative external
+  source. Tickets, comments, earlier turns, and summaries are investigation leads rather than proof.
+- For non-trivial reviews and migrations, try to refute each conclusion. Confirm behavioral claims
+  with a focused executable probe or test when the repository can do so safely.
+- Report only checks that actually ran successfully on the current change. Distinguish focused
+  verification from the repository's complete gate and identify skipped or unavailable checks.
+- Before handoff, search for missed consumers, malformed or boundary inputs, concurrency and cleanup
+  risks, weak assertions, and stale generated output. Resolve every in-scope gap that can be closed
+  locally instead of presenting it as a caveat.
+- Honor an explicitly narrow request, but do not silently narrow verification or omit required
+  contract updates merely because the request was brief.
+
+# Test falsification and assertion strength
+
+- A test added for a bug, guard, rejection path, or behavior-preserving refactor is not proven by a
+  green run alone. Temporarily reintroduce the smallest local source mutation that recreates the
+  claimed defect, run the narrow test, confirm it fails for the expected reason, and restore the
+  correct implementation before handoff.
+- Use one mutation for each independent behavior claimed as regression coverage. A single red run
+  for a file does not prove unrelated branches, guards, or accumulators in that file.
+- If the test remains green while the defect is present, rewrite or remove it. When a test cannot
+  reasonably discriminate a defect, describe it as contract or invariant coverage rather than
+  claiming it as regression coverage.
+- Prefer assertions that pin the complete expected public value. Negated substring assertions such
+  as `not.toContain(secret)` or `not.toMatch(pattern)` can stay green when output leaks, truncates,
+  or mangles part of the forbidden value. When the contract is genuinely absence, bound the result
+  with an exact positive assertion or a structural check that proves the intended output.
+- Make test inputs isolate the behavior under examination. Even an exact assertion is vacuous when
+  an unrelated field, suffix, timestamp, or identifier can distinguish the result while the target
+  behavior is broken. Hold every other result-affecting input constant.
+- Keep mutations local and reversible. Never falsify a test by changing production data, remote
+  services, credentials, shared infrastructure, or committed history.
+- Report the mutation and narrow command used to observe the expected failure. Do not leave the
+  temporary mutation in the working tree.
+
+# Testing documentation synchronization
+
+When a test utility, fixture, factory, mock, page object, harness, runner configuration, coverage
+owner, script, command, or public helper changes, verify every maintained testing guide still
+describes the executable repository accurately.
+
+Review the human testing guide, relevant agent testing skills and rules, package scripts, CI jobs,
+Git hooks, coverage configuration, and any test-layer routing table. Confirm paths, filenames,
+exports, environment selectors, mode tags, cleanup ownership, and command names against source
+instead of copying stale prose.
+
+Update canonical RuleSync sources and regenerate tool-native output. Do not patch generated agent
+files. A repository may keep a local companion rule listing its exact documentation and helper
+paths; this shared rule owns the synchronization principle rather than project topology.
+
+# Testing quality
+
+- Test observable behavior, public contracts, failure modes, boundary values, and cleanup. A test
+  that merely executes code, snapshots implementation detail, or calls a private helper cannot prove
+  the production path is wired correctly.
+- Keep the unit real and replace only external or lower-layer boundaries. Mock factories expose
+  typed spies or preserve real exports; never reimplement production behavior inside a mock.
+- Prefer exact public values and structural assertions. Prefix, substring, and negated-substring
+  assertions can remain green for truncated, malformed, or partially leaked output.
+- Isolate the behavior under examination by holding unrelated result-affecting inputs constant. Use
+  deterministic clocks, randomness, identifiers, factories, and per-test state.
+- Use a real local boundary when the mock framework cannot exercise the integration being claimed.
+  Do not infer retry, transport, database, or serialization behavior from an incompatible double.
+- Restore globals, timers, spies, subscriptions, listeners, servers, and temporary resources in the
+  test that owns them. Do not use arbitrary sleeps, production services, or order-dependent state.
+- Do not delete, skip, weaken, or broadly mock meaningful tests merely to make the suite pass.
+  Resolve ambiguous competing contracts with the user.
+- Preserve coverage ratchets and follow the shared casadega-test-falsification rule for regression,
+  guard, rejection, and behavior-preserving-refactor tests.
+
+# TypeScript quality
+
+- Treat external data as `unknown` and validate or narrow it at the runtime boundary. Do not use
+  `any`, assertions, or unreachable branches to bypass a modeling decision.
+- Do not declare TypeScript enums. Use an `as const` runtime object and derive its value union, or
+  use the runtime schema primitive appropriate to the validation boundary.
+- Prefer discriminated unions, exhaustive switches, type guards, control-flow narrowing, and
+  `satisfies`. Non-null and other assertions remain exceptional, locally proven escape hatches.
+- Use `@ts-expect-error` only for an intentional negative type test or documented upstream typing
+  limitation, with the expected failure explained on the same line. Never use `@ts-ignore`.
+- Give exported and cross-layer boundaries explicit parameter and return types. Prefer inference for
+  obvious locals and callbacks where it preserves useful precision.
+- Keep a type with the module that owns its meaning. Move it to a shared package only after multiple
+  runtime surfaces genuinely consume the same safe contract.
+- Model omission and `null` deliberately. Default with `??` when valid falsy values must survive.
+- Separate pure transformation and decision logic from I/O, logging, database, network, and state
+  mutation adapters.
+- Every detached promise needs a rejection owner. `void promise` suppresses a diagnostic but does
+  not handle failure.
+- Fix dependency cycles, invalid package boundaries, unused exports, and type-aware lint findings at
+  their source instead of weakening the rule or adding broad suppression.

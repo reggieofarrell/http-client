@@ -71,11 +71,11 @@ describe('HttpClient real upload progress (Node transport) against a real server
 
       expect(events.length).toBeGreaterThanOrEqual(10);
       for (let i = 1; i < events.length; i++) {
-        expect(events[i].loaded).toBeGreaterThanOrEqual(events[i - 1].loaded);
+        expect(events[i]?.loaded).toBeGreaterThanOrEqual(events[i - 1]?.loaded ?? -1);
       }
       expect(events.every(e => e.lengthComputable)).toBe(true);
       expect(events.every(e => e.total === bodySize)).toBe(true);
-      expect(events[events.length - 1].loaded).toBe(bodySize);
+      expect(events.at(-1)?.loaded).toBe(bodySize);
       expect(getReceivedBytes()).toEqual([bodySize]);
     } finally {
       await closeServer(server);
@@ -104,7 +104,7 @@ describe('HttpClient real upload progress (Node transport) against a real server
       expect(events.every(e => e.total === undefined)).toBe(true);
       expect(events.every(e => e.progress === undefined)).toBe(true);
       expect(events.every(e => e.lengthComputable === false)).toBe(true);
-      expect(events[events.length - 1].loaded).toBe(expectedBytes);
+      expect(events.at(-1)?.loaded).toBe(expectedBytes);
       expect(getReceivedBytes()).toEqual([expectedBytes]);
     } finally {
       await closeServer(server);
@@ -134,7 +134,7 @@ describe('HttpClient real upload progress (Node transport) against a real server
 
       expect(events.every(e => e.total === expectedBytes)).toBe(true);
       expect(events.every(e => e.lengthComputable === true)).toBe(true);
-      expect(events[events.length - 1].loaded).toBe(expectedBytes);
+      expect(events.at(-1)?.loaded).toBe(expectedBytes);
       expect(getReceivedBytes()).toEqual([expectedBytes]);
     } finally {
       await closeServer(server);
@@ -448,7 +448,7 @@ describe('HttpClient real upload progress (Node transport) against a real server
         realUploadProgress: event => events.push(event),
       });
 
-      expect(events[events.length - 1].loaded).toBe(Buffer.byteLength(body));
+      expect(events.at(-1)?.loaded).toBe(Buffer.byteLength(body));
       expect(getReceivedBytes()).toEqual([Buffer.byteLength(body)]);
     } finally {
       await closeServer(server);
@@ -471,7 +471,7 @@ describe('HttpClient real upload progress (Node transport) against a real server
         realUploadProgress: event => events.push(event),
       });
 
-      expect(events[events.length - 1].loaded).toBe(body.length);
+      expect(events.at(-1)?.loaded).toBe(body.length);
       expect(getReceivedBytes()).toEqual([body.length]);
     } finally {
       await closeServer(server);

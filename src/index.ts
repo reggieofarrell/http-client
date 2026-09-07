@@ -1,6 +1,4 @@
-export {
-  HttpClient,
-  RequestType,
+export type {
   HttpClientRequestConfig,
   HttpClientOptions,
   HttpClientResponse,
@@ -8,15 +6,19 @@ export {
   IdempotencyConfig,
   ErrorMessageExtractor,
 } from './http-client.js';
+export { HttpClient, RequestType } from './http-client.js';
 
+export type {
+  HttpErrorOptions,
+  HttpErrorResponse,
+  ErrorMetadata,
+  ErrorClassification,
+} from './errors.js';
 export {
   HttpClientError,
   NetworkError,
   TimeoutError,
   HttpError,
-  HttpErrorOptions,
-  HttpErrorResponse,
-  ErrorMetadata,
   SerializationError,
   AbortError,
   HttpErrorCategory,
@@ -30,7 +32,7 @@ export {
   buildNetworkErrorMetadata,
   buildHttpErrorResponse,
   classifyErrorForRetry,
-  ErrorClassification,
 } from './errors.js';
 
-export { isXiorError, XiorError, XiorRequestConfig, XiorResponse } from 'xior';
+export type { XiorRequestConfig, XiorResponse } from 'xior';
+export { isXiorError, XiorError } from 'xior';

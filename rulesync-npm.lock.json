@@ -1,0 +1,114 @@
+{
+  "lockfileVersion": 1,
+  "sources": {
+    "@casadega-development/ts-repo-tooling": {
+      "registry": "https://npm.pkg.github.com",
+      "requestedVersion": "0.7.0",
+      "resolvedVersion": "0.7.0",
+      "integrity": "sha512-/DmNId8a7hkb2BqXEhDyVbOdSd9Y8mX2vNEI4vB23Pz0QsB4bXFEY86tgSshrSZUikDK1ZVYDVlH5rX2zW7UtA==",
+      "resolvedAt": "2026-09-07T16:46:54.901Z",
+      "skills": {
+        "casadega-plan-execution": {
+          "integrity": "sha256-50aa479271b4cd70f7ee27c13854396546b7f3c39b4b872aa85b4b527a0643ba"
+        },
+        "casadega-implementation-planning": {
+          "integrity": "sha256-3b7f2a1bc2ea486d848c44b428e26bf499edfd4bf339bbf761d1859dbf378664"
+        },
+        "casadega-implementation-review": {
+          "integrity": "sha256-836f8303c30b689f3637382cce845fa16784230bc004b1facad80ee83bc8b021"
+        },
+        "casadega-dependency-upgrade": {
+          "integrity": "sha256-3094b8fc72de3c511f28ac45f7801a8252d6672e4d558617acaa5683ed0e0ab2"
+        },
+        "casadega-fix-sonarqube-issues": {
+          "integrity": "sha256-e77c7b1660f88ac52e74b7a7b9eaeb82efea78581625ae7ebf72ad7f408cc8e3"
+        },
+        "casadega-maintain-public-api": {
+          "integrity": "sha256-9e5257b916dfd22175ee5c657895927b436d0d818cc5ce7db4e71abde3d9ef8d"
+        },
+        "casadega-release-npm-library": {
+          "integrity": "sha256-069abee2e5e43934e013249c83c06af04395d31a5ff1d190e5f020de0895f407"
+        },
+        "casadega-review-rules-compliance": {
+          "integrity": "sha256-88a5186e7616f74e03eb7f6483a7d8dbd823f7ce8d20cb6a661dd6bb77301199"
+        },
+        "casadega-rulesync-upgrade-review": {
+          "integrity": "sha256-feb42f8bbe7eb8852313c8785bfa31cda60c719a995d0fb4fd9540f371c784a6"
+        },
+        "casadega-sync-dual-readmes": {
+          "integrity": "sha256-3b6f3970c8e93aa8aa18ba7a4edc2f7c7320a9ff0504118d16f13e1e1db27e49"
+        },
+        "casadega-unit-testing": {
+          "integrity": "sha256-50d80f86db20ff8a189391443ae16a3b1f84132d4d2fe20c560a021c861271dc"
+        }
+      },
+      "rules": {
+        "casadega-code-documentation": {
+          "integrity": "sha256-9874ce208ccfb4710fd1efa028a69f9f8d0d0f46d66383c514256d9f1a089777"
+        },
+        "casadega-coding-fundamentals": {
+          "integrity": "sha256-42fd2d7acaadcc91d8729a481bdbd9a1cc8c446f563a3961be2c5ec9c45e0ba9"
+        },
+        "casadega-dead-code-policy": {
+          "integrity": "sha256-db5fc250a0da56ea72f41116c7df7aa70565d90067363bbda1989f49c93bccfb"
+        },
+        "casadega-public-api-documentation": {
+          "integrity": "sha256-60daca1423a2293db6e6e0e4476dd20a0231df82ff72b1a8c76b1235a8024e3e"
+        },
+        "casadega-quality-gates": {
+          "integrity": "sha256-155663eb1943311d4935da8c477ac89a94efe58b9d27345f88dedc7bb57be143"
+        },
+        "casadega-rulesync-managed-config": {
+          "integrity": "sha256-384539bcbf941dd6a0cdbf0a2e64bbca9a7aa3b4d3c9005909b8bb7d250f8d8e"
+        },
+        "casadega-sonarqube-safety": {
+          "integrity": "sha256-955f7c93ba42d1faee232242c42452bfc7d7ca5e5dcca2a25f562c1c1e896966"
+        },
+        "casadega-source-verified-working-mode": {
+          "integrity": "sha256-2ac44ff451aa27fd3694ded5258decfca536d27fb43e956d65259ec92b9df91e"
+        },
+        "casadega-test-falsification": {
+          "integrity": "sha256-24dfed9a96f9a1f0bb9ef34051832f0de0c94c1fb8c5e45744fd714e40be16b6"
+        },
+        "casadega-testing-documentation-sync": {
+          "integrity": "sha256-fdb968d888838151ca95135361ccee40cf42563adb03bd50e64331d00e7db0dc"
+        },
+        "casadega-testing-quality": {
+          "integrity": "sha256-a550accbc31d6000ce3ef179d69ae995c4ac8a207ca66df65542ff85f83f056f"
+        },
+        "casadega-typescript-quality": {
+          "integrity": "sha256-1e993aceb85cf1168bfa8fd37acaf6e8f487fd387ecde18238672331991ad051"
+        }
+      },
+      "ruleSelection": [
+        "casadega-code-documentation",
+        "casadega-coding-fundamentals",
+        "casadega-dead-code-policy",
+        "casadega-public-api-documentation",
+        "casadega-quality-gates",
+        "casadega-rulesync-managed-config",
+        "casadega-sonarqube-safety",
+        "casadega-source-verified-working-mode",
+        "casadega-test-falsification",
+        "casadega-testing-documentation-sync",
+        "casadega-testing-quality",
+        "casadega-typescript-quality"
+      ],
+      "rulesPath": "rules",
+      "resolvedRuleNames": [
+        "casadega-code-documentation",
+        "casadega-coding-fundamentals",
+        "casadega-dead-code-policy",
+        "casadega-public-api-documentation",
+        "casadega-quality-gates",
+        "casadega-rulesync-managed-config",
+        "casadega-sonarqube-safety",
+        "casadega-source-verified-working-mode",
+        "casadega-test-falsification",
+        "casadega-testing-documentation-sync",
+        "casadega-testing-quality",
+        "casadega-typescript-quality"
+      ]
+    }
+  }
+}

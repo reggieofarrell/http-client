@@ -1,6 +1,7 @@
 import { request as httpRequest, type IncomingMessage, type ClientRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { Readable, Transform } from 'node:stream';
+import type { Readable } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { XiorRequestConfig, XiorResponse } from 'xior';
 import { joinPath, isAbsoluteURL, buildSortedURL } from 'xior';
@@ -34,6 +35,7 @@ const CHUNK_SIZE = 64 * 1024;
  *
  * Non-null assertions on those normalized fields are omitted deliberately: `joinPath` already
  * accepts optional strings, and Sonar (S4325) flags assertions the receiver does not need.
+ * @param request
  */
 function buildFinalUrl(request: XiorRequestConfig): string {
   const path = request.url || '';
@@ -183,10 +185,14 @@ class UploadCounterTransform extends Transform {
  *   fetch does - use the browser transport, or pass a pre-encoded Buffer with your own
  *   Content-Type instead).
  * - Only the default json/text response parsing is supported (matches xior's own default).
+ * @param request
  */
 export function performNodeUploadRequest(request: XiorRequestConfig): Promise<XiorResponse<any>> {
-  const onProgress = (request as RequestConfigWithProgress).realUploadProgress!;
-  const data = request.data;
+  // The plugin calls this transport only after `shouldHandleProgressRequest` proves the callback
+  // exists. The public xior config type cannot encode that cross-function narrowing, so make the
+  // already-validated transport contract explicit at this boundary.
+  const onProgress = (request as Required<RequestConfigWithProgress>).realUploadProgress;
+  const { data } = request;
 
   if (typeof FormData !== 'undefined' && data instanceof FormData) {
     return Promise.reject(
@@ -252,7 +258,9 @@ export function performNodeUploadRequest(request: XiorRequestConfig): Promise<Xi
     const req: ClientRequest = requestFn(
       url,
       {
-        method: request.method!.toUpperCase(),
+        // xior normalizes the method before plugin dispatch; the assertion documents that
+        // external-library invariant at the direct Node transport boundary.
+        method: (request.method as string).toUpperCase(),
         headers,
         agent: (request as any).httpsAgent,
       },
@@ -308,7 +316,9 @@ async function writeBody(
     return;
   }
 
-  const buf = bodyBuffer!;
+  // The dispatch path validates that exactly one supported body representation exists before
+  // calling this helper. A stream returned above, so the remaining representation is a Buffer.
+  const buf = bodyBuffer as Buffer;
   let offset = 0;
   let loaded = 0;
 

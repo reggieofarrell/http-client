@@ -1,0 +1,14 @@
+# Testing documentation synchronization
+
+When a test utility, fixture, factory, mock, page object, harness, runner configuration, coverage
+owner, script, command, or public helper changes, verify every maintained testing guide still
+describes the executable repository accurately.
+
+Review the human testing guide, relevant agent testing skills and rules, package scripts, CI jobs,
+Git hooks, coverage configuration, and any test-layer routing table. Confirm paths, filenames,
+exports, environment selectors, mode tags, cleanup ownership, and command names against source
+instead of copying stale prose.
+
+Update canonical RuleSync sources and regenerate tool-native output. Do not patch generated agent
+files. A repository may keep a local companion rule listing its exact documentation and helper
+paths; this shared rule owns the synchronization principle rather than project topology.

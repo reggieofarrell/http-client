@@ -1,7 +1,7 @@
 import type { XiorPlugin, XiorRequestConfig } from 'xior';
-import { shouldHandleProgressRequest } from './shared.js';
-import { performNodeUploadRequest } from './node-transport.js';
 import { performBrowserUploadRequest } from './browser-transport.js';
+import { performNodeUploadRequest } from './node-transport.js';
+import { shouldHandleProgressRequest } from './shared.js';
 
 export type { UploadProgressEvent } from './shared.js';
 
@@ -23,7 +23,7 @@ function hasBrowserRuntime(): boolean {
  * `@reggieofarrell/http-client/upload-progress` to `upload-progress.browser.ts` instead (see its
  * module doc) specifically so it never has to resolve this file's Node-only imports
  * (`node:http`/`node:https`/`node:stream`) at all - confirmed empirically that a browser bundle of
- * *this* file fails outright otherwise (4 unresolvable `node:*` import errors), which is exactly
+ * this* file fails outright otherwise (4 unresolvable `node:*` import errors), which is exactly
  * why the split exists.
  *
  * Only ever registered by `HttpClient`'s own constructor when a consumer explicitly supplies it

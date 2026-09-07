@@ -1368,7 +1368,7 @@ describe('HttpClient', () => {
   describe('Request Modification', () => {
     test('allows request modification through beforeRequest', async () => {
       class CustomClient extends HttpClient {
-        protected async beforeRequest(
+        protected override async beforeRequest(
           _requestType: RequestType,
           _url: string,
           data: any,
@@ -1486,7 +1486,7 @@ describe('HttpClient', () => {
 
     test('handles custom error handler', async () => {
       class CustomClient extends HttpClient {
-        public errorHandler = jest.fn();
+        public override errorHandler = jest.fn();
       }
 
       const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
@@ -1505,7 +1505,7 @@ describe('HttpClient', () => {
     // cause. request() now detects this specifically and throws a clear configuration error.
     test('errorHandler that returns instead of throwing produces a clear configuration error', async () => {
       class SwallowingClient extends HttpClient {
-        protected errorHandler() {
+        protected override errorHandler() {
           // Intentionally does not throw
         }
       }
@@ -1523,7 +1523,7 @@ describe('HttpClient', () => {
 
     test('handles beforeRequest hook', async () => {
       class CustomClient extends HttpClient {
-        public beforeRequest = jest.fn();
+        public override beforeRequest = jest.fn();
       }
 
       const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
@@ -1543,12 +1543,14 @@ describe('HttpClient', () => {
 
     test('handles beforeRequest hook with direct mutation', async () => {
       class CustomClient extends HttpClient {
-        public beforeRequest = jest.fn().mockImplementation((_requestType, _url, data, config) => {
-          // Simulate direct mutation - replace the data object
-          Object.keys(data).forEach(key => delete data[key]);
-          Object.assign(data, { modified: true });
-          config.headers = { ...config.headers, 'X-Custom': 'test' };
-        });
+        public override beforeRequest = jest
+          .fn()
+          .mockImplementation((_requestType, _url, data, config) => {
+            // Simulate direct mutation - replace the data object
+            Object.keys(data).forEach(key => delete data[key]);
+            Object.assign(data, { modified: true });
+            config.headers = { ...config.headers, 'X-Custom': 'test' };
+          });
       }
 
       const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
@@ -1567,7 +1569,7 @@ describe('HttpClient', () => {
 
     test('handles afterResponse hook', async () => {
       class CustomClient extends HttpClient {
-        public afterResponse = jest.fn();
+        public override afterResponse = jest.fn();
       }
 
       const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
@@ -1587,7 +1589,7 @@ describe('HttpClient', () => {
 
     test('handles afterResponse hook with data modification', async () => {
       class CustomClient extends HttpClient {
-        protected async afterResponse(
+        protected override async afterResponse(
           _requestType: RequestType,
           _url: string,
           _response: any,
@@ -1613,7 +1615,7 @@ describe('HttpClient', () => {
 
     test('afterResponse hook is not called for error responses', async () => {
       class CustomClient extends HttpClient {
-        public afterResponse = jest.fn();
+        public override afterResponse = jest.fn();
       }
 
       const customClient = new CustomClient({ baseURL: 'https://api.example.com' });
@@ -1631,7 +1633,7 @@ describe('HttpClient', () => {
       // override is the hook's own bug, not a transport failure, so it's never wrapped as one of
       // this library's error types.
       class CustomClient extends HttpClient {
-        protected async beforeRequest(): Promise<void> {
+        protected override async beforeRequest(): Promise<void> {
           throw new RangeError('boom');
         }
       }
@@ -1654,7 +1656,7 @@ describe('HttpClient', () => {
 
     test('an afterResponse override that throws propagates raw, not through the error hierarchy', async () => {
       class CustomClient extends HttpClient {
-        protected async afterResponse(): Promise<void> {
+        protected override async afterResponse(): Promise<void> {
           throw new RangeError('boom');
         }
       }
@@ -1678,7 +1680,11 @@ describe('HttpClient', () => {
     test('onError fires with the classified error after a failed request', async () => {
       const onErrorSpy = jest.fn();
       class CustomClient extends HttpClient {
-        protected async onError(requestType: RequestType, url: string, error: any): Promise<void> {
+        protected override async onError(
+          requestType: RequestType,
+          url: string,
+          error: any
+        ): Promise<void> {
           onErrorSpy(requestType, url, error);
         }
       }
@@ -1696,7 +1702,7 @@ describe('HttpClient', () => {
     test('onError is not called for a successful request', async () => {
       const onErrorSpy = jest.fn();
       class CustomClient extends HttpClient {
-        protected async onError(): Promise<void> {
+        protected override async onError(): Promise<void> {
           onErrorSpy();
         }
       }
@@ -1715,7 +1721,7 @@ describe('HttpClient', () => {
       // If errorHandler awaited onError, this request would hang until the test timeout instead
       // of rejecting promptly.
       class CustomClient extends HttpClient {
-        protected async onError(): Promise<void> {
+        protected override async onError(): Promise<void> {
           return new Promise(() => {});
         }
       }
@@ -1733,7 +1739,7 @@ describe('HttpClient', () => {
       process.on('unhandledRejection', unhandled);
 
       class CustomClient extends HttpClient {
-        protected async onError(): Promise<void> {
+        protected override async onError(): Promise<void> {
           throw new Error('logging backend is down');
         }
       }
@@ -1754,10 +1760,10 @@ describe('HttpClient', () => {
     test('overriding errorHandler directly does not call onError automatically', async () => {
       const onErrorSpy = jest.fn();
       class CustomClient extends HttpClient {
-        protected async onError(): Promise<void> {
+        protected override async onError(): Promise<void> {
           onErrorSpy();
         }
-        protected errorHandler(error: any, reqType: RequestType, url: string) {
+        protected override errorHandler(error: any, reqType: RequestType, url: string) {
           throw this.processError(error, reqType, url);
         }
       }
@@ -1775,10 +1781,17 @@ describe('HttpClient', () => {
     test('debug/debugLevel are pure flags a subclass can read to recreate logging via hooks', async () => {
       const logs: string[] = [];
       class LoggingClient extends HttpClient {
-        protected async beforeRequest(requestType: RequestType, url: string): Promise<void> {
+        protected override async beforeRequest(
+          requestType: RequestType,
+          url: string
+        ): Promise<void> {
           if (this.debug) logs.push(`${requestType} ${url}`);
         }
-        protected async onError(requestType: RequestType, url: string, error: any): Promise<void> {
+        protected override async onError(
+          requestType: RequestType,
+          url: string,
+          error: any
+        ): Promise<void> {
           if (this.debug) logs.push(`ERROR ${requestType} ${url}: ${error.message}`);
         }
       }
@@ -1798,7 +1811,7 @@ describe('HttpClient', () => {
         public beforeRequestSpy = jest.fn();
         public afterResponseSpy = jest.fn();
 
-        protected async beforeRequest(
+        protected override async beforeRequest(
           _requestType: RequestType,
           _url: string,
           data: any,
@@ -1810,7 +1823,7 @@ describe('HttpClient', () => {
           config.headers = { ...config.headers, 'X-Request-Time': data.requestTime.toString() };
         }
 
-        protected async afterResponse(
+        protected override async afterResponse(
           _requestType: RequestType,
           _url: string,
           response: any,
@@ -2833,7 +2846,7 @@ describe('HttpClient', () => {
         public customErrorHandler = jest.fn();
         public processErrorCalled = false;
 
-        protected errorHandler(error: any, reqType: RequestType, url: string) {
+        protected override errorHandler(error: any, reqType: RequestType, url: string) {
           this.processErrorCalled = true;
           const processedError = this.processError(error, reqType, url);
           this.customErrorHandler(processedError);
@@ -2853,7 +2866,7 @@ describe('HttpClient', () => {
 
     test('child class can modify error before throwing', async () => {
       class CustomClient extends HttpClient {
-        protected errorHandler(error: any, reqType: RequestType, url: string) {
+        protected override errorHandler(error: any, reqType: RequestType, url: string) {
           const processedError = this.processError(error, reqType, url);
           // Modify the error message
           processedError.message = `[Custom] ${processedError.message}`;
@@ -2873,7 +2886,7 @@ describe('HttpClient', () => {
       class CustomClient extends HttpClient {
         public errorLog: any[] = [];
 
-        protected errorHandler(error: any, reqType: RequestType, url: string) {
+        protected override errorHandler(error: any, reqType: RequestType, url: string) {
           const processedError = this.processError(error, reqType, url);
 
           // Add custom logging

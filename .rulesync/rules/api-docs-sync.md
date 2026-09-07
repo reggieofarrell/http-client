@@ -36,8 +36,8 @@ When you change this surface:
 4. **If the change is breaking (or changes a documented default), update
    `website/src/content/docs/reference/breaking-changes.md`** with what changed and what a consumer
    needs to do about it — do not rely on the commit message or CHANGELOG alone to carry that.
-5. **Use a breaking-change commit** (`type!:` plus a `BREAKING CHANGE:` footer — see
-   `.rulesync/rules/commit-messages.md`) so `commit-and-tag-version` actually surfaces it as a major
+5. **Use a breaking-change commit** (`type!:` plus a `BREAKING CHANGE:` footer — see the shared
+   `casadega-quality-gates` rule) so `commit-and-tag-version` actually surfaces it as a major
    bump and a `⚠ BREAKING CHANGES` block in `CHANGELOG.md`, instead of it silently reading as a
    normal fix/feat.
 6. **Check `src/index.ts` deliberately.** Every export there is a permanent-until-a-major-bump

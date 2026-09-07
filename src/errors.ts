@@ -60,7 +60,7 @@ export interface NetworkErrorMetadata extends ErrorMetadata {
 
 /**
  * Response object for HTTP errors
- * @typeParam TErrorBody - Shape of the response body, if known. Defaults to `unknown` so a
+ * @template TErrorBody - Shape of the response body, if known. Defaults to `unknown` so a
  * caller must explicitly narrow it (e.g. `error.response.data as MyApiErrorBody`) rather than
  * silently treating it as `any`.
  */
@@ -87,7 +87,7 @@ export abstract class HttpClientError extends Error {
   /** Diagnostic metadata about the request and error */
   metadata: ErrorMetadata;
   /** The original error that caused this error */
-  cause?: any;
+  override cause?: any;
 
   /**
    * Creates an instance of HttpClientError
@@ -169,7 +169,7 @@ export class TimeoutError extends HttpClientError {
  * Everything that used to be a positional constructor argument lives here so callers
  * (and this library's own `processError` path) can name each field at the call site.
  *
- * @typeParam TErrorBody - Shape of `response.data`, matching `HttpError<TErrorBody>`.
+ * @template TErrorBody - Shape of `response.data`, matching `HttpError<TErrorBody>`.
  */
 export interface HttpErrorOptions<TErrorBody = unknown> {
   /** Human-readable error message (often extracted from the response body or status text) */
@@ -195,7 +195,7 @@ export interface HttpErrorOptions<TErrorBody = unknown> {
 
 /**
  * HTTP error - thrown when the server responds with a 4xx or 5xx status code
- * @typeParam TErrorBody - Shape of the error response body, if known. Defaults to `unknown`.
+ * @template TErrorBody - Shape of the error response body, if known. Defaults to `unknown`.
  * Not tied to any request method's type parameter - provide it yourself at the catch site.
  *
  * Note: plain `error instanceof HttpError` narrows `response.data` to `any`, not `unknown` -
@@ -616,7 +616,7 @@ export function classifyErrorForRetry(error: any): ErrorClassification {
 
   // Check for HTTP errors (has response)
   if (error.response) {
-    const status = error.response.status;
+    const { status } = error.response;
     const category = classifyHttpError(status);
     const isRetriable = determineHttpErrorRetriability(status, category);
 

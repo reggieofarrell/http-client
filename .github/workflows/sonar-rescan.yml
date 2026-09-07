@@ -29,6 +29,7 @@ jobs:
     name: SonarQube
     uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan-after-tests.yml@main
     secrets:
+      NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
       test-run-id: ${{ github.event.inputs.test-run-id }}

@@ -1,0 +1,21 @@
+---
+description: Keep project agent configuration synchronized through RuleSync and never hand-edit generated or curated copies
+---
+
+# RuleSync-managed agent configuration
+
+- Treat `.rulesync/` as the repository source of truth for project rules, skills, and hooks. Treat
+  generated `.agents/`, `.claude/`, `.codex/`, `.cursor/`, `AGENTS.md`, and `CLAUDE.md` artifacts as
+  build output rather than authored policy.
+- Model reusable agent workflows as skills, not authored RuleSync commands. Skills provide one
+  cross-tool source for Codex, Cursor, and Claude; deterministic execution belongs in repository
+  scripts or the `casadega-repo-tooling` CLI.
+- Shared policy belongs in its owning package. Release it there, update the consuming repository's
+  exact package version and RuleSync source revision together, install with the frozen lock, and
+  regenerate tool-native output.
+- Never edit an installed `.curated/` source. A repository-specific specialization belongs in an
+  authored local source with a distinct purpose, or an intentional same-name override when the
+  repository must replace shared policy.
+- Run the repository's RuleSync install, generation, and drift checks after source changes. Commit
+  authored sources, source locks, package locks, and generated output together.
+- Keep machine-local preferences in ignored tool-supported overrides. They are not project policy.

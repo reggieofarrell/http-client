@@ -4,6 +4,9 @@ This library uses Conventional Commits, semantic versioning, `commit-and-tag-ver
 release branch, and npm Trusted Publishing. Local release commands prepare a reviewed version;
 GitHub Actions is the only recurring npm publisher.
 
+The generated `casadega-release-npm-library` skill carries the shared protected-branch workflow;
+this document supplies the package-specific commands and dual-README details.
+
 ## Preview before mutation
 
 Start from a clean `main` synchronized with `origin/main` and run:

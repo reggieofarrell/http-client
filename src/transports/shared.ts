@@ -8,6 +8,7 @@ import type { XiorRequestConfig, XiorResponse } from 'xior';
  * normal Error with a message/stack/code. `Object.prototype.toString.call` reads the internal
  * `[[Class]]`/`Symbol.toStringTag` instead of walking the prototype chain, so it correctly
  * identifies an Error-like object regardless of which realm constructed it.
+ * @param value
  */
 export function isErrorLike(value: unknown): value is Error {
   return Object.prototype.toString.call(value) === '[object Error]';
@@ -16,9 +17,9 @@ export function isErrorLike(value: unknown): value is Error {
 /**
  * A real upload progress event, reported by the transport that actually sent the bytes
  * (XMLHttpRequest in the browser, node:http/https in Node) - not simulated.
- * @typeParam total/progress - Only present when the request body's byte length is known ahead
- * of time (string/Buffer/Uint8Array bodies, or a stream body with a caller-supplied
- * Content-Length header). Omitted entirely (not `undefined`) when unknown, per this project's
+ * `total` and `progress` are present only when the request body's byte length is known ahead of
+ * time (string/Buffer/Uint8Array bodies, or a stream body with a caller-supplied Content-Length
+ * header). They are omitted entirely when unknown, per this project's
  * `exactOptionalPropertyTypes` setting.
  */
 export interface UploadProgressEvent {
@@ -72,6 +73,7 @@ function parseResponseData(bodyText: string): any {
  * Under TS 5.9+, a plain `Uint8Array` (and Node `Buffer`) is typed as `Uint8Array<ArrayBufferLike>`,
  * which is no longer assignable to `BodyInit`; copying into a fresh `Uint8Array` yields the
  * `ArrayBuffer`-backed view the DOM lib expects.
+ * @param body
  */
 function toFetchResponseBody(body: string | Uint8Array): BodyInit {
   return typeof body === 'string' ? body : new Uint8Array(body);
@@ -81,6 +83,7 @@ function toFetchResponseBody(body: string | Uint8Array): BodyInit {
  * Builds a real Headers instance from a plain header map (Node's `res.headers`, or a parsed
  * XHR `getAllResponseHeaders()` string turned into entries) - deliberately a genuine Headers
  * instance, not a duck-typed stand-in, since XiorResponse types it as a real Headers.
+ * @param entries
  */
 export function buildHeadersFromEntries(entries: Iterable<[string, string]>): Headers {
   const headers = new Headers();
@@ -126,6 +129,11 @@ export function stringifyHeaderValue(value: unknown): string {
  * mirroring xior's own real shape (and MockPlugin's confirmed-legitimate synthetic pattern) -
  * `XiorResponse.request`/`.config` are typed identically as "the config," not a distinct
  * network-level object.
+ * @param request
+ * @param status
+ * @param statusText
+ * @param headers
+ * @param body
  */
 export function buildXiorResponse(
   request: XiorRequestConfig,
@@ -161,6 +169,8 @@ export function buildXiorResponse(
  * by reading xior's own core adapter source, not assumed) - this replicates that exactly, using
  * xior's own "Request failed with status code {n}" message format for consistency, so a
  * progress-tracked request's error surfaces identically to a normal one.
+ * @param request
+ * @param xiorResponse
  */
 export function buildHttpStatusError(
   request: XiorRequestConfig,
@@ -204,7 +214,13 @@ export function buildNetworkError(request: XiorRequestConfig, cause: unknown): E
   return error;
 }
 
-/** Resolves whichever of `response`/`resolve` a completed request should trigger. */
+/**
+ * Resolves whichever of `response`/`resolve` a completed request should trigger.
+ * @param request
+ * @param xiorResponse
+ * @param resolve
+ * @param reject
+ */
 export function settleFromResponse(
   request: XiorRequestConfig,
   xiorResponse: XiorResponse<any>,
@@ -251,12 +267,13 @@ const NO_BODY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * Returns `true` if this request should be intercepted and handled by a real transport;
  * `false` if it should pass through to the adapter unchanged. Throws (via `assertSupportedBody`)
  * if the request should be intercepted but has an unsupported body type.
+ * @param request
  */
 export function shouldHandleProgressRequest(request: XiorRequestConfig): boolean {
   const config = request as RequestConfigWithProgress;
   // xior always normalizes `method` to a real string before any plugin sees the request
   // (confirmed empirically against a real xior instance) - no fallback needed.
-  const method = config.method!.toUpperCase();
+  const method = (config.method as string).toUpperCase();
 
   // Also passes through when there's no actual body to track (e.g. a DELETE or PUT with
   // realUploadProgress set but no data) - method alone isn't enough to decide this, since

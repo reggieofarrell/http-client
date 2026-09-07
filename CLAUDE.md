@@ -91,26 +91,28 @@ it that way (see "Working mode" below).
   points at an executable file — the executable bit is invisible to a normal content diff, so
   nothing else catches it losing that bit. `npm run test:hook-permissions` unit-tests the checker
   itself. See `scripts/check-hook-permissions.mjs`.
-- Full local gate: `npm run release:verify`. It includes package-content and dual-README lifecycle
-  checks in addition to formatting, lint, RuleSync, hooks, types, coverage, build, and audit.
+- Full local gate: `npm run release:verify`. It includes shared Sonar and package baselines plus
+  package-content and dual-README lifecycle checks in addition to formatting, lint, RuleSync,
+  hooks, types, coverage, build, and audit.
 
 ## Tooling
 
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook) — this drives
   `CHANGELOG.md` generation via `commit-and-tag-version` (config: `.versionrc.json`).
-- **Agent config:** authored once under `.rulesync/` (rules, skills, and coding-agent hooks;
-  `cut-release`, `write-tests`, and `fix-sonarqube-issues`) and generated to Cursor, Claude Code,
-  Codex CLI, and the `AGENTS.md` standard via `npm run rules:sync`. Skills (not commands) so
-  Codex CLI actually gets them — it only supports rulesync's "commands" feature in global mode,
-  not per-project. Never hand-edit `.cursor/`, `.claude/`, `.agents/`, `.codex/`, `AGENTS.md`, or
-  `CLAUDE.md` — `npm run rules:check` (pre-push + CI) fails on drift.
+- **Agent config:** project-specific rules, the `write-tests` skill, and coding-agent hooks are
+  authored under `.rulesync/`; broadly reusable rules and skills come from the exact installed
+  `@casadega-development/ts-repo-tooling` release. RuleSync generates both sources to Cursor,
+  Claude Code, Codex CLI, and the `AGENTS.md` standard. Skills (not commands) provide the one
+  workflow format all three agents understand. Never hand-edit `.cursor/`, `.claude/`, `.agents/`,
+  `.codex/`, `AGENTS.md`, or `CLAUDE.md` — `npm run rules:check` fails on drift.
 - **SonarQube:** layered gate (local SonarJS ESLint, agent post-edit hook, fail-closed secret
   scans, skippable changed-file precheck, CI scan via `Casadega-Development/action-workflows`).
   The server gate is new-code-only. Do not put tokens in source, env files, command arguments, or
   logs.
-- **Releasing:** follow `docs/development/releasing.md` and the `cut-release` skill. Preview with
-  `release:bump:dry`, land `release:bump` through a release PR without a tag, then create the GitHub
-  Release from merged `main` with `release:publish`; the release event triggers OIDC npm publication.
+- **Releasing:** follow `docs/development/releasing.md` and the shared
+  `casadega-release-npm-library` skill. Preview with `release:bump:dry`, land `release:bump` through
+  a release PR without a tag, then create the GitHub Release from merged `main` with
+  `release:publish`; the release event triggers OIDC npm publication.
 - **Documentation surfaces:** the Starlight site under `website/` is the authoritative consumer and
   API documentation; GitHub shows the contributor-focused `README.md`; npm receives the compact
   `npm-readme.md` entry point temporarily staged as the tarball root README. Keep each source focused

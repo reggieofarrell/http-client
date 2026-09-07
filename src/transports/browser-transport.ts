@@ -31,6 +31,7 @@ import {
  *
  * Non-null assertions on those normalized fields are omitted deliberately: `joinPath` already
  * accepts optional strings, and Sonar (S4325) flags assertions the receiver does not need.
+ * @param request
  */
 function buildFinalUrl(request: XiorRequestConfig): string {
   const path = request.url || '';
@@ -68,18 +69,24 @@ function* parseXhrResponseHeaders(raw: string): Generator<[string, string]> {
  * regardless of `withCredentials` (that flag only ever affects cross-origin credentials), where
  * real fetch with `credentials: 'omit'` would suppress them entirely even same-origin - a
  * documented limitation, not a silent one.
+ * @param request
  */
 export function performBrowserUploadRequest(
   request: XiorRequestConfig
 ): Promise<XiorResponse<any>> {
-  const onProgress = (request as RequestConfigWithProgress).realUploadProgress!;
-  const data = request.data;
+  // The plugin calls this transport only after `shouldHandleProgressRequest` proves the callback
+  // exists. The public xior config type cannot encode that cross-function narrowing, so make the
+  // already-validated transport contract explicit at this boundary.
+  const onProgress = (request as Required<RequestConfigWithProgress>).realUploadProgress;
+  const { data } = request;
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const finalUrl = buildFinalUrl(request);
-    xhr.open(request.method!.toUpperCase(), finalUrl, true);
+    // xior normalizes the method before plugin dispatch; the assertion documents that external
+    // library invariant without inventing a fallback for a state this transport cannot receive.
+    xhr.open((request.method as string).toUpperCase(), finalUrl, true);
 
     for (const [key, value] of Object.entries(request.headers ?? {})) {
       if (value === undefined) continue;
