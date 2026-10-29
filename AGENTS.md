@@ -93,7 +93,7 @@ it that way (see "Working mode" below).
   itself. See `scripts/check-hook-permissions.mjs`.
 - Full local gate: `npm run release:verify`. It includes shared Sonar and package baselines plus
   package-content and dual-README lifecycle checks in addition to formatting, lint, RuleSync,
-  hooks, types, coverage, build, and audit.
+  hooks, agent-config portability, types, coverage, build, and audit.
 
 ## Tooling
 
@@ -135,10 +135,10 @@ decision, not a routine agent shortcut.
 
 Run `npm run release:verify` before handing off a merge-ready change. It is the canonical complete
 gate: formatting, lint, shared Sonar and package baselines, RuleSync, hook permissions,
-repository-script tests, types, coverage, build output, package contents including dual-README
+agent-config portability, repository-script tests, types, coverage, build output, package contents including dual-README
 staging, documentation, and runtime audit.
 
-Everyday pre-push still runs the lighter `rules:check`, `check:hooks`, and `npm test`.
+Everyday pre-push still runs the lighter `rules:check`, `agent-config:check`, `check:hooks`, and `npm test`.
 
 The package release flow is preview-first and PR-based. Never restore the old `--no-verify` release
 commands, create a release tag on the branch, push a generated release commit directly to `main`, or
@@ -152,8 +152,9 @@ publish locally. Follow `docs/development/releasing.md` and the shared
 - Every active server rule implemented by `eslint-plugin-sonarjs` is an ESLint
   error on production `src/`. The SonarQube server quality gate remains
   authoritative for analyzers that cannot run locally and is **new-code-only**.
-- Coding-agent post-edit hooks run a type-independent subset of that profile on
-  production `src/` files. Edit `.rulesync/hooks.jsonc`, not generated hook files.
+- Coding-agent post-edit hooks use the installed shared CLI to format actual edited files before
+  running a type-independent subset of that profile on production `src/` files. Feedback is advisory;
+  the complete Git and CI gates remain blocking. Edit `.rulesync/hooks.jsonc`, not generated hook files.
 - A hook command invoked by bare path (no `node`/`bash`/etc. in front of it) depends on its
   target script's executable bit, which is invisible to a normal content diff. `npm run
   check:hooks` (pre-push + CI) fails loudly if one loses it — see
@@ -424,6 +425,18 @@ files. A repository may keep a local companion rule listing its exact documentat
 paths; this shared rule owns the synchronization principle rather than project topology.
 
 # Testing quality
+
+- Derive expected values from an independent source: the requested behavior, an API contract,
+  documented policy, an existing caller, or a domain rule. Work out literal expectations from that
+  source; do not copy the implementation's output, compute expectations by calling it, snapshot
+  unverified output, or reimplement the same algorithm in the test. Label intentional legacy
+  characterization tests as descriptions of current behavior rather than proof of correctness.
+- Run relevant existing tests before changing their expectations. Presume an existing failure is a
+  regression until a requested behavior change justifies the new expectation. Report each changed
+  expectation with its old and new values and the request or contract authorizing the change.
+- For bug fixes, first observe the narrow regression test fail against the unfixed behavior. For new
+  behavior, falsify the important assertions with a reversible local source mutation as required by
+  casadega-test-falsification. A green test derived only from newly written code is not an oracle.
 
 - Test observable behavior, public contracts, failure modes, boundary values, and cleanup. A test
   that merely executes code, snapshots implementation detail, or calls a private helper cannot prove

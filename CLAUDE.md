@@ -93,7 +93,7 @@ it that way (see "Working mode" below).
   itself. See `scripts/check-hook-permissions.mjs`.
 - Full local gate: `npm run release:verify`. It includes shared Sonar and package baselines plus
   package-content and dual-README lifecycle checks in addition to formatting, lint, RuleSync,
-  hooks, types, coverage, build, and audit.
+  hooks, agent-config portability, types, coverage, build, and audit.
 
 ## Tooling
 

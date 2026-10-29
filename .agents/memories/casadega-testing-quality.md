@@ -1,5 +1,17 @@
 # Testing quality
 
+- Derive expected values from an independent source: the requested behavior, an API contract,
+  documented policy, an existing caller, or a domain rule. Work out literal expectations from that
+  source; do not copy the implementation's output, compute expectations by calling it, snapshot
+  unverified output, or reimplement the same algorithm in the test. Label intentional legacy
+  characterization tests as descriptions of current behavior rather than proof of correctness.
+- Run relevant existing tests before changing their expectations. Presume an existing failure is a
+  regression until a requested behavior change justifies the new expectation. Report each changed
+  expectation with its old and new values and the request or contract authorizing the change.
+- For bug fixes, first observe the narrow regression test fail against the unfixed behavior. For new
+  behavior, falsify the important assertions with a reversible local source mutation as required by
+  casadega-test-falsification. A green test derived only from newly written code is not an oracle.
+
 - Test observable behavior, public contracts, failure modes, boundary values, and cleanup. A test
   that merely executes code, snapshots implementation detail, or calls a private helper cannot prove
   the production path is wired correctly.

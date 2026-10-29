@@ -9,7 +9,9 @@ in sync if that identity changes.
 
 - **Local ESLint:** shared TypeScript Repo Tooling maps every active server rule implemented by its
   installed `eslint-plugin-sonarjs` version onto production `src/` as a blocking error.
-- **Agent post-edit hook:** RuleSync generates a fast, type-independent subset of the same profile.
+- **Agent post-edit hook:** the installed shared CLI formats actual edited files before a fast,
+  type-independent subset of the same profile. Feedback remains advisory; unavailable tools are
+  reported explicitly and the complete Git and CI gates remain blocking.
 - **Pre-push precheck:** shared tooling runs Sonar Scanner against files changed from `origin/main`.
   Exit status 2 is a loud unavailable-prerequisite skip; findings and scanner failures block.
 - **CI:** the Tests workflow uploads Jest LCOV and calls the shared Casadega scanner workflow. The
@@ -19,7 +21,8 @@ Neither the local plugin nor SonarQube for IDE replaces the server's complete an
 
 ## CI setup
 
-Configure these values at the repository level:
+Configure these secrets at the repository level. The committed properties remain the only server
+authority; a legacy `SONAR_HOST_URL` variable is optional diagnostic input:
 
 | Name                      | Kind     | Purpose                                                        |
 | ------------------------- | -------- | -------------------------------------------------------------- |
@@ -28,10 +31,15 @@ Configure these values at the repository level:
 | `CASADEGA_PACKAGES_TOKEN` | Secret   | Read-only GitHub token for the private shared tooling package  |
 
 The Tests workflow runs for pull requests to `main` and pushes to `main`. It calls
-`Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@main`, restores Jest
+`Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@4779d64bef299ba4bee7b6dc4b829cf05d617d37` (v1.0.1), pinned immutably. It restores Jest
 coverage, sends explicit pull-request or branch parameters, and enforces both the new-code issue
 gate and the official SonarQube quality gate. SonarQube's configured GitHub integration owns pull
 request decoration; this repository does not post a second custom Actions comment.
+
+The `Quality gate` aggregate requires every local CI job and the permitted Sonar scan to succeed.
+The scanner receives the upstream coverage job result explicitly, so a failed prerequisite cannot
+become a skipped passing context. Preparation and analysis use separate disposable runners; only
+analysis receives the Sonar credential. Existing new-code and Jest coverage policies are preserved.
 
 The caller maps `CASADEGA_PACKAGES_TOKEN` to the reusable workflow's `NODE_AUTH_TOKEN` secret because
 the scanner restores the locked private development dependency. See
@@ -45,7 +53,7 @@ authorization failure.
 
 The `SonarQube Re-scan` workflow can analyze an already tested commit without rebuilding coverage.
 Open a completed Tests run, copy its numeric run ID, and provide it to the manual workflow. The
-shared `sonar-scan-after-tests.yml@main` workflow restores coverage and derives the original pull
+shared `sonar-scan-after-tests.yml@4779d64bef299ba4bee7b6dc4b829cf05d617d37` workflow restores coverage and derives the original pull
 request or branch context.
 
 ## Local tools and credentials
@@ -112,7 +120,8 @@ initial offline fallback, not an authentication workaround.
 
 `sonar:precheck` creates an isolated temporary analysis branch, runs Scanner only for changed
 analyzable files, retrieves findings, and makes a best-effort attempt to remove the temporary branch.
-Use `--all` to include pre-existing findings in changed files.
+Use `--all` to bypass changed-file filtering and analyze all configured sources.
+Hotspots alone are advisory and are reported separately from a clean result.
 
 `sonar:findings` retrieves both open issues and security hotspots awaiting review for an existing
 pull-request or branch analysis. It uses the same pinned host and credential resolver, so an empty
@@ -128,14 +137,18 @@ Husky installs three complementary hooks:
 - `pre-commit` runs the SonarQube CLI staged-secret scan and lint-staged;
 - `commit-msg` enforces Conventional Commits; and
 - `pre-push` runs the outgoing-commit secret scan, shared changed-file precheck, RuleSync drift
-  check, hook-permission check, and tests.
+  check, agent-config portability, hook-permission check, and tests.
 
 Secret scan failures always block. The server-backed precheck alone may return the documented
 unavailable status when its external prerequisites cannot run.
 
 RuleSync generates Codex, Cursor, and Claude post-edit hooks from `.rulesync/hooks.jsonc`. The hook
-script invokes `eslint.sonar-hook.config.mjs`, which composes the fast generated profile through
-shared tooling. Edit the canonical RuleSync hook or local adapter and regenerate; never edit the
+adapter invokes the installed `hook agent-edit` command with a script-owned repository root and
+forwards stdin unchanged, including when the agent runs elsewhere. The shared command formats only
+actual edit targets with local Prettier before `eslint.sonar-hook.config.mjs` composes the fast
+profile. Read-only payloads do not select files; missing tools are advisory diagnostics.
+`agent-config:check` rejects symbolic links in authored and generated agent configuration, and the
+complete local gate and CI run the adapter contract tests. Edit the canonical RuleSync hook or local adapter and regenerate; never edit the
 generated tool configuration directly.
 
 ## SonarQube for IDE

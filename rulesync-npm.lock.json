@@ -3,10 +3,10 @@
   "sources": {
     "@casadega-development/ts-repo-tooling": {
       "registry": "https://npm.pkg.github.com",
-      "requestedVersion": "0.8.0",
-      "resolvedVersion": "0.8.0",
-      "integrity": "sha512-/mySbkm8cot65X4jfQbMXfv30vK97Fhve3IgS1JzrUQyo/WbN1xlnaSaP62GmnJumTpyX5s2Snj6jXJn18SxLQ==",
-      "resolvedAt": "2026-09-07T17:41:17.998Z",
+      "requestedVersion": "0.9.0",
+      "resolvedVersion": "0.9.0",
+      "integrity": "sha512-29Vh9K0lGZNooibuiNTNECKvGhtPp0Y/A9PHeJ/fY/aS2VTBg0Fv+Vf+sDsVvXRknEoknqH/3LrELccTQzOlJQ==",
+      "resolvedAt": "2026-10-29T17:29:39.635Z",
       "skills": {
         "casadega-plan-execution": {
           "integrity": "sha256-50aa479271b4cd70f7ee27c13854396546b7f3c39b4b872aa85b4b527a0643ba"
@@ -80,7 +80,7 @@
           "integrity": "sha256-fdb968d888838151ca95135361ccee40cf42563adb03bd50e64331d00e7db0dc"
         },
         "casadega-testing-quality": {
-          "integrity": "sha256-a550accbc31d6000ce3ef179d69ae995c4ac8a207ca66df65542ff85f83f056f"
+          "integrity": "sha256-c40e94a20f3140964ad57363d5fa48d05e512fa3db6653391b9ff433322d64b6"
         },
         "casadega-typescript-quality": {
           "integrity": "sha256-1e993aceb85cf1168bfa8fd37acaf6e8f487fd387ecde18238672331991ad051"
