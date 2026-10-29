@@ -36,7 +36,7 @@
       "source": "@casadega-development/ts-repo-tooling",
       "transport": "npm",
       "registry": "https://npm.pkg.github.com",
-      "ref": "0.8.0",
+      "ref": "0.9.0",
       "tokenEnv": "NODE_AUTH_TOKEN",
       "rules": [
         "casadega-branch-naming",

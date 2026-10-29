@@ -36,9 +36,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -65,6 +65,10 @@ jobs:
       - name: Rules in sync (rulesync)
         # Fails if the generated agent-instruction files drift from the .rulesync/ source.
         run: npm run rules:check
+      - name: Agent configuration portability
+        run: npm run agent-config:check
+      - name: Agent hook adapter contract
+        run: npm run test:agent-hook
       - name: Hook script permissions
         # Catches a script losing its executable bit before a bare-path agent hook depending on
         # it silently stops running - see scripts/check-hook-permissions.mjs.
@@ -78,9 +82,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -97,9 +101,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -112,7 +116,7 @@ jobs:
         run: npm test -- --coverage
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage
           path: coverage
@@ -124,9 +128,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -142,26 +146,27 @@ jobs:
   sonarqube:
     name: SonarQube
     needs: test
-    # Same-repo PRs get PR decoration + sticky comment; pushes to main re-baseline
-    # new code. Fork PRs are skipped because GitHub does not expose repository
-    # secrets to them (SONAR_TOKEN would be empty and the reusable workflow fails closed).
+    # Always surface failed prerequisites as a failed scanner context. Fork PRs
+    # retain the existing secret policy and do not run credential-bearing analysis.
     if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+      !cancelled() &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     permissions:
       actions: read
       contents: read
       # The reusable workflow restores locked Node dependencies before analysis and therefore
       # requires package-registry read access even when this repository only uses public packages.
       packages: read
-    # Follow the protected shared-workflow branch so centralized Sonar fixes and maintenance land
-    # here automatically instead of requiring a repository-by-repository SHA update.
-    uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@main
+    # Reviewed shared release isolates repository preparation from the Sonar credential.
+    # Adopt future releases through a reviewed immutable SHA update.
+    uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@4779d64bef299ba4bee7b6dc4b829cf05d617d37 # v1.0.1
     secrets:
       NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
+      prerequisite-result: ${{ needs.test.result }}
       coverage-artifacts-json: '[{"name":"coverage","path":"coverage"}]'
       issue-gate-scope: new-code
       enforce-quality-gate: true
@@ -179,9 +184,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -200,9 +205,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -214,3 +219,36 @@ jobs:
       # (xior), so this stays a real signal instead of devDependency noise.
       - name: Runtime dependency audit
         run: npm run check:audit
+
+  quality:
+    name: Quality gate
+    # Inspect every result even when an earlier job failed or was skipped, so
+    # branch protection has one explicit overall result instead of a false skip.
+    if: always()
+    needs: [lint, types, test, docs, sonarqube, build, audit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require successful prerequisites
+        env:
+          LINT_RESULT: ${{ needs.lint.result }}
+          TYPES_RESULT: ${{ needs.types.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          SONAR_RESULT: ${{ needs.sonarqube.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          for result in "$LINT_RESULT" "$TYPES_RESULT" "$TEST_RESULT" "$DOCS_RESULT" "$BUILD_RESULT" "$AUDIT_RESULT"; do
+            if [ "$result" != success ]; then
+              echo "::error::A required quality job did not succeed ($result)."
+              exit 1
+            fi
+          done
+          # Only the existing untrusted-fork policy permits a skipped scan.
+          if [ "$SONAR_RESULT" != success ] && ! { [ "$IS_FORK_PR" = true ] && [ "$SONAR_RESULT" = skipped ]; }; then
+            echo "::error::SonarQube did not succeed ($SONAR_RESULT)."
+            exit 1
+          fi

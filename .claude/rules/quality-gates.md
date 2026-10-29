@@ -11,10 +11,10 @@ decision, not a routine agent shortcut.
 
 Run `npm run release:verify` before handing off a merge-ready change. It is the canonical complete
 gate: formatting, lint, shared Sonar and package baselines, RuleSync, hook permissions,
-repository-script tests, types, coverage, build output, package contents including dual-README
+agent-config portability, repository-script tests, types, coverage, build output, package contents including dual-README
 staging, documentation, and runtime audit.
 
-Everyday pre-push still runs the lighter `rules:check`, `check:hooks`, and `npm test`.
+Everyday pre-push still runs the lighter `rules:check`, `agent-config:check`, `check:hooks`, and `npm test`.
 
 The package release flow is preview-first and PR-based. Never restore the old `--no-verify` release
 commands, create a release tag on the branch, push a generated release commit directly to `main`, or
@@ -28,8 +28,9 @@ publish locally. Follow `docs/development/releasing.md` and the shared
 - Every active server rule implemented by `eslint-plugin-sonarjs` is an ESLint
   error on production `src/`. The SonarQube server quality gate remains
   authoritative for analyzers that cannot run locally and is **new-code-only**.
-- Coding-agent post-edit hooks run a type-independent subset of that profile on
-  production `src/` files. Edit `.rulesync/hooks.jsonc`, not generated hook files.
+- Coding-agent post-edit hooks use the installed shared CLI to format actual edited files before
+  running a type-independent subset of that profile on production `src/` files. Feedback is advisory;
+  the complete Git and CI gates remain blocking. Edit `.rulesync/hooks.jsonc`, not generated hook files.
 - A hook command invoked by bare path (no `node`/`bash`/etc. in front of it) depends on its
   target script's executable bit, which is invisible to a normal content diff. `npm run
   check:hooks` (pre-push + CI) fails loudly if one loses it — see

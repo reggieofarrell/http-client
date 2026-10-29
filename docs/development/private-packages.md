@@ -111,3 +111,8 @@ Keep these identities synchronized in one reviewed change:
 
 Run `npm run rules:sync` with package credentials after updating the release, then run
 `npm run release:verify`. Never edit `.rulesync/**/.curated/` or generated agent files.
+
+The reviewed private tooling package alone is exempt from npm's release-age cooldown through
+`min-release-age-exclude[]=@casadega-development/ts-repo-tooling`. This permits immediate adoption of
+our coordinated exact releases; its transitive dependencies and all third-party packages retain
+the one-day cooldown. The exemption is an npm 11.19 configuration contract.
